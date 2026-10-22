@@ -1,0 +1,207 @@
+# Inframy spec
+
+Last updated: 2026-10-22
+
+## 1. Goal
+
+Make putting personal photos on The Frame as easy as: **pick photos → (optionally) nudge the crop → done.**
+Inframy handles everything after that and gives a far better view of what's on the TV than SmartThings does.
+
+### The workflow it replaces
+
+Today, for every photo, Matt has to:
+
+1. Crop to 16:9.
+2. Resize to the TV's pixel dimensions.
+3. Transfer it to his phone.
+4. Upload through the SmartThings app.
+5. Remove the mat Samsung adds by default.
+6. Make sure it's in the collection the TV shuffles.
+
+It's slow, error-prone and doesn't scale to many photos. SmartThings is also unreliable at even loading.
+
+### Non-goals (for now)
+
+- Art Store content, other Samsung TV features, remote control.
+- iOS/iPad versions.
+- Multi-user or cloud sync.
+- App Store distribution. This is a personal tool; local signing or Developer ID is fine.
+
+## 2. Hardware and constraints
+
+- **TV:** Samsung The Frame 3.0, 55" QLED 4K, 2020 model (LS03T series), white bezel. Panel is 3840×2160.
+- **Art API version: unknown.** A 2019 Frame reports `0.97` and only accepts the legacy WebSocket-binary
+  upload; newer Frames use a socket ("d2d") upload. Phase 0 answers this for Matt's TV.
+- **Storage is small.** One 2020 LS03T owner reported ~259 MB free after installing a few apps. Plan for the
+  TV holding tens of photos, not thousands (see pool rotation, §7).
+- **Reachability:** TV must be on, in Art Mode, or in standby with network standby enabled. Same subnet as the Mac.
+- **Slideshow reliability:** 2020 owners report the art slideshow sometimes stops; Inframy should re-assert it.
+
+## 3. Target experience
+
+1. **Pair once.** App discovers the TV (SSDP) or takes an IP, Matt presses Allow on the TV, token goes in the Keychain.
+2. **Import.** Drag photos from Finder or Photos into the window, use a Photos picker, or (Phase 3) designate a
+   Photos album ("Frame") that Inframy keeps in sync.
+3. **Crop.** Every photo gets an automatic 16:9 crop. Matt reviews them in a fast crop editor (§4) and fixes any he
+   doesn't like.
+4. **Send.** One button. Inframy renders, dedupes, uploads with no mat, and ensures shuffle is on for the TV's
+   personal-photos collection.
+5. **See the TV.** A grid of what's actually on the TV (thumbnails), marked as Inframy-managed, adopted (matched to a
+   library photo), or unknown. Multi-select delete.
+
+## 4. Crop editor (the headline feature)
+
+Matt explicitly wants 16:9 cropping to be *super easy*. Requirements:
+
+- **Aspect locked to 16:9.** The crop frame never changes shape. The image moves and scales under it, so it's one
+  gesture, not corner handles.
+- **Pan:** drag. **Zoom:** scroll wheel / pinch / `+` `-`. Minimum zoom = image fully covers the frame (no empty
+  space, unless the photo is in "fit" mode, below).
+- **Smart default:** initial crop centered on Vision's attention-based saliency
+  (`VNGenerateAttentionBasedSaliencyImageRequest`) biased toward detected faces; fall back to center crop.
+- **Batch flow:** a filmstrip of pending photos. Keys: arrows nudge the crop, `Return` = accept and go to next,
+  `Space` = full-screen preview, `R` = reset to smart crop, `⌘A` then "Accept all" for trusting the defaults.
+  Accepting a crop without touching it should be one keystroke.
+- **Preview as on the wall:** show the crop inside a white bezel at TV proportions.
+- **Quality warning:** if the crop region is narrower than 3840 source pixels, show a badge with the effective
+  resolution (e.g. "upscaled 1.6×") so Matt can zoom out or skip it.
+- **Portrait and square photos:** per-photo mode: *Crop* (16:9 slice, default), *Fit with blur fill*
+  (blurred, darkened copy behind the sharp image), or *Skip*. A later option: pair two portraits side by side.
+- **Non-destructive:** store the crop as a normalized rect + mode per photo. Re-editing is always possible;
+  a changed crop means a re-upload (replace the old TV item).
+
+## 5. Image pipeline
+
+Core Image / ImageIO, in `InframyKit`:
+
+1. Load original (file URL or PhotoKit asset data). Apply EXIF orientation.
+2. Convert to **sRGB** (wide-gamut sources look washed out on the Frame otherwise).
+3. Apply crop rect (or fit-with-blur composition).
+4. Resize to **exactly 3840×2160** with a high-quality filter (Lanczos).
+5. Optional light sharpening (off by default; make it a setting so it can be judged on the actual TV).
+6. Encode JPEG, quality ~0.9, strip metadata (keep none: GPS etc. shouldn't go to the TV).
+7. Cache the render keyed by (source hash, crop spec, pipeline version).
+
+## 6. Library, ledger, dedup
+
+Persistence: SwiftData or SQLite (GRDB), whichever the implementer prefers; keep the schema simple.
+
+- **Photo:** id, source (security-scoped bookmark for files, or PhotoKit `localIdentifier`), source SHA-256,
+  crop spec, render hash, perceptual hash (64-bit dHash of the render), status.
+- **TVItem:** TV content id (e.g. `MY_F0096` / `MY-F0020`; format varies by firmware), first seen, linked Photo id
+  (nullable), origin (`inframy` / `adopted` / `unknown`), thumbnail cache path, thumbnail dHash.
+
+Dedup rules:
+
+- Importing the same source twice (same SHA-256 or same PhotoKit id) → no new Photo.
+- Before upload, if a TVItem already links to this Photo with the same render hash → skip.
+- **Adoption:** on refresh, download thumbnails for unknown `MY-` items, compute dHash, compare to library
+  renders. Close match (small Hamming distance, tune on real data) → propose linking. Never auto-delete unknowns.
+
+## 7. Sync engine and pool rotation
+
+- **Desired state** = set of Photos marked "on TV". **Actual state** = TV content list (personal category only).
+- Diff → queue of uploads and deletes, executed serially with retries and backoff. The UI shows the queue.
+- After uploads, ensure matte is none and shuffle is on for the personal-photos category.
+- **Pool rotation (Phase 4):** the library can be much larger than the TV can hold. Setting: pool size N
+  (e.g. 60). On a schedule (e.g. nightly, when the Mac and TV are both reachable), swap out a fraction of the pool
+  for photos that have been off the TV longest. The TV's own shuffle handles minute-to-minute changes.
+- **Storage full:** there's no known storage query. Treat upload failures that look like capacity errors as
+  "full": shrink the pool and report it.
+- **Background agent:** a menu bar item / login item that runs rotation and re-asserts shuffle. Wake the TV
+  with Wake-on-LAN when needed.
+
+Open question for Matt (affects rotation): is the Mac a desktop that stays on at home, or a laptop?
+If a laptop, use a larger pool and rotate opportunistically when on the home network.
+
+## 8. TV client (`InframyKit/TVClient`)
+
+See `docs/PROTOCOL.md` for the wire format. Design:
+
+- `actor TVConnection`: one WebSocket (`URLSessionWebSocketTask`) to port 8002 (TLS, self-signed: trust on first
+  use and pin the cert) on the art-app channel. Request/response correlation by `id` / `request_id`.
+  Auto-reconnect.
+- Version negotiation on connect: try the new `api_version` request, fall back to `get_api_version`. Pick the
+  upload transport and command names from the result.
+- Uploads: legacy WebSocket-binary (API 0.97) or d2d socket via `Network.framework` (`NWConnection`, TLS when
+  the TV says `secured`).
+- Typed API: `contentList(category:)`, `thumbnail(id:)`, `upload(jpeg:matte:)`, `delete(ids:)`, `changeMatte`,
+  `setShuffle(category:interval:)`, `artMode`, `currentArtwork`, `deviceInfo`.
+- Wake-on-LAN helper (needs the TV's MAC; get it from the REST device info at `http://<ip>:8001/api/v2/`).
+
+## 9. macOS specifics
+
+- `Info.plist`: `NSLocalNetworkUsageDescription` (macOS will prompt for local network access),
+  `NSPhotoLibraryUsageDescription` for PhotoKit.
+- Start **non-sandboxed** for simplicity (personal tool). If sandboxed later: `com.apple.security.network.client`,
+  user-selected file read access, Photos entitlement.
+- Drag from Photos.app arrives as file promises: use `NSFilePromiseReceiver`.
+
+## 10. Phases
+
+Each phase ends with something Matt can use or verify.
+
+### Phase 0: Probe the TV (no app code)
+
+Run `tools/probe.py` (read-only by default) against Matt's TV and record results in `docs/PROTOCOL.md`:
+
+- [ ] Pairing works; token saved.
+- [ ] Art API version reported.
+- [ ] Content list for the personal category: id format, fields (width, height, matte, date…).
+- [ ] Matte list; current slideshow/auto-rotation status (which command name works).
+- [ ] One thumbnail downloaded (which transport).
+- [ ] *With Matt's OK:* upload one test image with matte `none`; confirm it shows full-screen with no mat.
+- [ ] *With Matt's OK:* set shuffle on the personal category; note which command and interval values are accepted.
+- [ ] *With Matt's OK:* delete the test image.
+- [ ] Capture raw JSON for each exchange as test fixtures.
+
+### Phase 1: CLI + core (InframyKit)
+
+- [ ] Scaffold: `project.yml`, app target (empty window), `InframyKit` package, `inframy-cli`.
+- [ ] TV client with pairing, version negotiation, list, thumbnail, upload (the transport Phase 0 proved),
+      delete, change matte, set shuffle. Fake-server tests from Phase 0 fixtures.
+- [ ] Image pipeline with tests.
+- [ ] CLI: `pair`, `info`, `ls`, `thumbs <dir>`, `upload <files…> [--crop center|smart]`, `rm <ids…>`,
+      `shuffle on|off [--interval]`.
+- **Done when:** `inframy-cli upload photo.jpg` puts a mat-free, full-screen photo into the shuffle.
+
+### Phase 2: The app (MVP)
+
+- [ ] Pair/connect UI with TV status.
+- [ ] Import by drag-and-drop from Finder and Photos, and a Photos picker.
+- [ ] Crop editor per §4.
+- [ ] "Send to TV" with progress queue.
+- [ ] "On the TV" grid with thumbnails and multi-select delete.
+- **Done when:** Matt can go from photos in Finder/Photos to shuffling on the TV without touching SmartThings.
+
+### Phase 3: Library smarts
+
+- [ ] Ledger, dedup, adoption of pre-existing TV images (§6).
+- [ ] Photos album sync ("Frame" album).
+- [ ] Portrait modes (blur fill, skip).
+
+### Phase 4: Scale
+
+- [ ] Pool rotation, menu bar agent, Wake-on-LAN, shuffle re-assertion (§7).
+
+## 11. Risks
+
+- **Undocumented API.** Firmware updates could change it; Samsung removed and later restored it on 2022 models.
+  A 2020 TV is unlikely to get big firmware changes, which helps.
+- **Protocol version uncertainty** for this exact TV until Phase 0.
+- **Reachability**: TV asleep or off the network; Wake-on-LAN may or may not wake it into a state where the
+  art channel responds.
+- **Slideshow quirks** on 2020 firmware (allowed interval values, stopping on its own).
+
+## 12. References
+
+- NickWaterton/samsung-tv-ws-api (Frame-focused fork; `samsungtvws/art.py` is the best protocol reference):
+  https://github.com/NickWaterton/samsung-tv-ws-api
+- samsungtvws on PyPI (3.0.6, Sep 2026; includes Art API 0.97 handling): https://pypi.org/project/samsungtvws
+- ha-samsungtv-smart issues #307 / #311 (API 0.97 binary upload and thumbnails, with working code):
+  https://github.com/TheFab21/ha-samsungtv-smart/issues/307
+- framesmith (Rust library; ports, pairing, slideshow config): https://docs.rs/crate/framesmith/latest
+- framectl (Go CLI; folder sync): https://pkg.go.dev/github.com/garyburd/framectl
+- SAWSUBE (self-hosted app; image pipeline and dedup ideas): https://github.com/WB2024/SAWSUBE
+- Samsung developer forum on 2022 firmware renaming commands:
+  https://forum.developer.samsung.com/t/most-reliable-approach-to-manage-art-mode-images-on-samsung-frame-tvs/29155

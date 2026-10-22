@@ -1,0 +1,18 @@
+# macOS / Xcode
+.DS_Store
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+.build/
+.swiftpm/
+
+# Python probe tooling
+.venv/
+__pycache__/
+tools/probe-output/
+
+# Secrets: TV pairing tokens must never be committed
+tools/.tv-token
+*.token
+tv.json
