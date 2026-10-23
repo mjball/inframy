@@ -319,6 +319,29 @@ no reply, no error, for 45 s+. The whole TV was laggy at the time. Unsupported n
 ignored instead of getting `-9`. **Fix that worked:** remote power button → TV mode → back to Art mode; replies
 returned at ~0.1 s. Clients should use short timeouts and tell the user about this remedy.
 
+### Single-photo slideshow wedges the TV ⚠️
+
+2026-10-23. Shuffle was turned on (15 min, `MY-C0002`) at 10:49 with **one** photo in My Photos. From then on:
+the whole TV was laggy (remote included), and after every restart the art service answered for ~1 min and
+then stopped replying. Turning the slideshow **off** (sent during a responsive window right after a cold boot)
+fixed it: replies at 0.02 s for 7½ min until the screen slept. Network changes (DNS block, no route) did not
+fix it. **Inframy never enables shuffle with fewer than 2 photos.** Untested: shuffle with ≥ 2 photos.
+
+### Motion sensor = off the network
+
+When the motion sensor turns the screen off (nobody in the room), the TV drops off Wi-Fi entirely: no ping,
+REST, Bonjour or art channel. It rejoins when someone walks in and the screen wakes. Background jobs can only
+run while the screen is on, or after Wake-on-LAN (untested from this state).
+
+### Network setup that works (2026-10-23)
+
+Manual IP `192.168.5.86/22` (eero reservation on the same IP), **gateway and DNS = the Pi-hole (`192.168.4.70`)**.
+The Pi forwards packets in general (`ip_forward=1`, not Docker), so it has iptables `FORWARD` REJECT rules for
+the TV (`tcp-reset` for TCP, `icmp-host-unreachable` otherwise; REJECT, not DROP, so the TV fails fast instead of
+hanging) and `send_redirects=0`. Pi-hole denies all DNS for the TV's client. TV reports "connected, no internet".
+Notes: Samsung's manual-IP screen defaults the mask to `255.255.255.0` (wrong for this /22); after changing
+IP settings a **cold boot** (unplug ~30 s) is needed, and the TV can take 10+ minutes to rejoin Wi-Fi.
+
 ### Content list duplicates
 
 Unfiltered `get_content_list` lists each personal photo **twice**: once with `category_id` `MY-C0002` and once

@@ -128,7 +128,8 @@ final class AppModel {
         guard let status = try? await withClient({ try await $0.slideshowStatus() }) else { return }
         slideshow = status
         let personal = (try? await withClient { try await $0.contentList() }) ?? []
-        if !personal.isEmpty, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
+        // A single-photo shuffle wedged Matt's 2020 Frame (docs/PROTOCOL.md): only shuffle two or more.
+        if personal.count >= 2, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
             await setShuffle(on: true)
         }
     }
@@ -223,6 +224,13 @@ final class AppModel {
             client = c
             tvState = .connected(info, apiVersion: version)
             await refreshTV()
+        } catch let failure as TVLocator.Failure {
+            if case .pairedTVUnreachable(let tv) = failure {
+                // The Frame drops off the network when its motion sensor turns the screen off.
+                tvState = .unavailable("\(tv.name.replacingOccurrences(of: "[TV] ", with: "")) is asleep or off the network. It wakes when someone walks in (motion sensor), or try Wake TV.")
+            } else {
+                tvState = .unavailable(String(describing: failure))
+            }
         } catch {
             tvState = .unavailable(String(describing: error))
         }
@@ -479,7 +487,7 @@ final class AppModel {
         if sentAny {
             await refreshTV()
             // Spec: after sending, make sure the TV is shuffling My Photos.
-            if let status = slideshow, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
+            if let status = slideshow, tvItems.count >= 2, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
                 await setShuffle(on: true)
             }
         }
