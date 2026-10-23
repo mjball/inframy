@@ -24,45 +24,20 @@ struct TVOptions: ParsableArguments {
     @Option(help: "Seconds to wait for the TV.")
     var timeout: Int = 20
 
-    /// Resolves which TV to talk to. A paired TV is recognised by id: if its IP changed, rediscover and update.
     func resolve() async throws -> (info: TVDeviceInfo, saved: SavedTV?) {
-        if let host {
-            return (try await TVDeviceInfo.fetch(host: host), SavedTV.load())
-        }
-        if var saved = SavedTV.load() {
-            if let info = try? await TVDeviceInfo.fetch(host: saved.host), info.id == saved.id {
-                return (info, saved)
+        do {
+            return try await TVLocator.resolve(host: host, note: { note($0) })
+        } catch let failure as TVLocator.Failure {
+            switch failure {
+            case .pairedTVUnreachable: throw CLIError("\(failure) Try `inframy-cli wake`, or pass --host.")
+            default: throw CLIError("\(failure) Pass --host to pick one.")
             }
-            note("\(saved.name) isn't answering at \(saved.host); searching the network…")
-            if let info = await TVDiscovery.findFrames().first(where: { $0.id == saved.id }) {
-                saved.host = info.host
-                try saved.save()
-                note("Found it at \(info.host).")
-                return (info, saved)
-            }
-            throw CLIError("""
-                Can't reach \(saved.name). Is it on and on the same network? \
-                Try `inframy-cli wake`, or pass --host.
-                """)
-        }
-        let frames = await TVDiscovery.findFrames()
-        switch frames.count {
-        case 0: throw CLIError("No Frame TV found on the network. Is it on? Pass --host to skip discovery.")
-        case 1: return (frames[0], nil)
-        default:
-            throw CLIError("Found several Frames: \(frames.map { "\($0.name) (\($0.host))" }.joined(separator: ", ")). Pass --host.")
         }
     }
 
     func client() async throws -> (ArtClient, TVDeviceInfo) {
         let (info, saved) = try await resolve()
-        let sameTV = saved?.id == info.id
-        let connection = TVConnection(options: .init(
-            host: info.host,
-            token: sameTV ? saved?.token : nil,
-            pinnedCertificate: sameTV ? saved?.certificateFingerprint : nil,
-            timeout: .seconds(timeout)))
-        return (ArtClient(connection: connection), info)
+        return (ArtClient(connection: TVLocator.connection(to: info, saved: saved, timeout: .seconds(timeout))), info)
     }
 }
 
@@ -109,8 +84,8 @@ struct Pair: AsyncParsableCommand {
         let client = ArtClient(connection: connection)
         note("Connecting to \(info.name) at \(info.host). If the TV asks, press Allow…")
         let version = try await client.apiVersion()
-        let saved = SavedTV(info: info, certificateFingerprint: await connection.certificateFingerprint)
-        try saved.save()
+        // Re-pairing replaces the pinned certificate (e.g. after a factory reset).
+        try SavedTV(info: info, certificateFingerprint: await connection.certificateFingerprint).save()
         if let token = await connection.issuedToken { TokenStore.write(token, account: info.id) }
         print("Paired with \(info.name) (\(info.model ?? "?"), Art API \(version)) at \(info.host).")
         print("Saved to \(SavedTV.defaultURL.path).")

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF1C6"/>
+      <stop offset="1" stop-color="#FFA468"/>
+    </linearGradient>
+    <mask id="arrow">
+      <rect width="1024" height="1024" fill="white"/>
+      <!-- A slim upload arrow cut out of the sun: the photo rising into the frame. -->
+      <path fill="black" d="M512 548 L566 604 L534 604 L534 690 L490 690 L490 604 L458 604 Z"/>
+    </mask>
+  </defs>
+  <circle cx="512" cy="622" r="108" fill="url(#sun)" mask="url(#arrow)"/>
+</svg>

@@ -1,0 +1,168 @@
+import CoreGraphics
+import Foundation
+import ImageIO
+
+/// A photo Matt has imported. Originals are never modified: Finder files are referenced by bookmark, and photos
+/// dragged from Photos (which only hands out copies) are copied into the library's `Originals` folder.
+public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable {
+    /// Matt's decision for this photo. Nothing is sent until it's `.crop` or `.fitWithBlur`: Inframy never
+    /// crops on its own.
+    public enum Choice: Codable, Sendable, Equatable, Hashable {
+        case undecided
+        case crop(NormalizedRect)
+        case fitWithBlur
+        case skip
+    }
+
+    public enum Source: Codable, Sendable, Equatable, Hashable {
+        /// A file elsewhere on disk. `bookmark` follows it if it moves.
+        case file(path: String, bookmark: Data?)
+        /// A copy inside the library's Originals folder.
+        case copy(filename: String)
+    }
+
+    public var id: UUID
+    public var displayName: String
+    public var source: Source
+    public var sha256: String
+    /// Size as displayed (EXIF orientation applied).
+    public var pixelWidth: Int
+    public var pixelHeight: Int
+    public var choice: Choice
+    /// Where the crop editor's frame starts (computer-vision hint), normalized, top-left origin.
+    public var suggestedCenter: [Double]?
+    /// The TV item this photo was uploaded as.
+    public var tvContentID: String?
+    /// Cache key of the render that was uploaded; if the crop changes, the TV copy is stale.
+    public var uploadedRenderKey: String?
+    public var addedAt: Date
+
+    public var imageSize: CGSize { CGSize(width: pixelWidth, height: pixelHeight) }
+    public var aspect: Double { Double(pixelWidth) / Double(max(pixelHeight, 1)) }
+    /// Already 16:9: no crop to choose, only resizing.
+    public var isPanelShaped: Bool { abs(aspect - Panel.aspect) / Panel.aspect < 0.005 }
+
+    public var renderSpec: RenderSpec? {
+        switch choice {
+        case .crop(let rect): return RenderSpec(mode: .crop(rect))
+        case .fitWithBlur: return RenderSpec(mode: .fitWithBlur)
+        case .undecided, .skip: return nil
+        }
+    }
+
+    public var renderKey: String? {
+        renderSpec.map { ImagePipeline.cacheKey(sourceSHA256: sha256, spec: $0) }
+    }
+
+    public enum Status: Sendable, Equatable {
+        case needsCrop, skipped, readyToSend, onTV, changedSinceUpload
+    }
+
+    public var status: Status {
+        switch choice {
+        case .undecided: return .needsCrop
+        case .skip: return .skipped
+        case .crop, .fitWithBlur:
+            guard tvContentID != nil else { return .readyToSend }
+            return uploadedRenderKey == renderKey ? .onTV : .changedSinceUpload
+        }
+    }
+}
+
+/// Reads and writes the library (JSON) and imports photos into it.
+/// Default location: ~/Library/Application Support/Inframy/.
+public struct LibraryStore: Sendable {
+    public let directory: URL
+
+    public init(directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Inframy")) {
+        self.directory = directory
+    }
+
+    var fileURL: URL { directory.appendingPathComponent("library.json") }
+    public var originalsDirectory: URL { directory.appendingPathComponent("Originals") }
+
+    public func load() -> [LibraryPhoto] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([LibraryPhoto].self, from: data)) ?? []
+    }
+
+    public func save(_ photos: [LibraryPhoto]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(photos).write(to: fileURL, options: .atomic)
+    }
+
+    /// The original's current location (following a bookmark if the file moved).
+    public func url(for photo: LibraryPhoto) -> URL? {
+        switch photo.source {
+        case .copy(let filename):
+            return originalsDirectory.appendingPathComponent(filename)
+        case .file(let path, let bookmark):
+            if FileManager.default.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
+            if let bookmark {
+                var stale = false
+                if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withoutUI], bookmarkDataIsStale: &stale) {
+                    return url
+                }
+            }
+            return nil
+        }
+    }
+
+    public enum ImportResult: Sendable {
+        case imported(LibraryPhoto)
+        case duplicate(of: UUID)
+    }
+
+    /// Adds a file by reference (Finder). `copy: true` copies it into Originals instead (Photos drags, picker
+    /// temp files). Skips photos already in the library (same SHA-256).
+    public func importPhoto(at url: URL, copy: Bool, existing: [LibraryPhoto]) throws -> ImportResult {
+        let sha = try ImagePipeline.sha256(of: url)
+        if let dup = existing.first(where: { $0.sha256 == sha }) { return .duplicate(of: dup.id) }
+        guard let size = Self.orientedPixelSize(of: url) else { throw ImagePipelineError.unreadable(url.lastPathComponent) }
+
+        let id = UUID()
+        let source: LibraryPhoto.Source
+        if copy {
+            try FileManager.default.createDirectory(at: originalsDirectory, withIntermediateDirectories: true)
+            let filename = "\(id.uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased())"
+            try FileManager.default.copyItem(at: url, to: originalsDirectory.appendingPathComponent(filename))
+            source = .copy(filename: filename)
+        } else {
+            source = .file(path: url.path, bookmark: try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil))
+        }
+        var photo = LibraryPhoto(id: id, displayName: url.deletingPathExtension().lastPathComponent, source: source,
+                                 sha256: sha, pixelWidth: Int(size.width), pixelHeight: Int(size.height),
+                                 choice: .undecided, suggestedCenter: nil, tvContentID: nil, uploadedRenderKey: nil,
+                                 addedAt: Date())
+        // A photo that's already 16:9 has nothing to choose: resize only.
+        if photo.isPanelShaped { photo.choice = .crop(.full) }
+        return .imported(photo)
+    }
+
+    /// Pixel size with EXIF orientation applied (portrait photos report swapped dimensions).
+    public static func orientedPixelSize(of url: URL) -> CGSize? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int else {
+            return nil
+        }
+        let orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
+        return (5...8).contains(orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+    }
+
+    /// A small preview image for grids and the filmstrip (orientation applied).
+    public static func thumbnail(of url: URL, maxPixel: Int) -> CGImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ] as CFDictionary)
+    }
+}
