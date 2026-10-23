@@ -317,6 +317,10 @@ struct Shuffle: AsyncParsableCommand {
 
     func run() async throws {
         let (client, _) = try await tv.client()
+        if state == .on, try await client.contentList().count < 2 {
+            // A 1-photo shuffle wedged Matt's 2020 Frame (docs/PROTOCOL.md).
+            throw CLIError("My Photos has fewer than 2 photos. A 1-photo shuffle makes this TV's art service hang; add another photo first.")
+        }
         try await client.setSlideshow(intervalMinutes: state == .on ? interval : nil, shuffle: !ordered)
         let status = try await client.slideshowStatus()
         if let minutes = status.intervalMinutes {

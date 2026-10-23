@@ -198,6 +198,9 @@ struct ShuffleControl: View {
 
     var body: some View {
         Menu {
+            if model.tvItems.count < 2 {
+                Text("Shuffle needs at least 2 photos (a 1-photo shuffle wedges this TV)")
+            }
             Section("Shuffle My Photos") {
                 ForEach(Self.intervals, id: \.0) { minutes, title in
                     Button {
@@ -207,6 +210,7 @@ struct ShuffleControl: View {
                     }
                 }
             }
+            .disabled(model.tvItems.count < 2)
             Divider()
             Button("Turn Off") { Task { await model.setShuffle(on: false) } }
                 .disabled(model.slideshow?.isOn != true)

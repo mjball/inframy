@@ -40,7 +40,8 @@ What each phase added:
    under the picture (to 86 = to throw out; also your TV's IP ends in .86). *Assumed: you like it.*
    Alternatives: "404", or no placard.
 3. **Sending turns shuffle on.** SPEC §3 says Send "ensures shuffle is on", so after a send the app turns on
-   My Photos shuffle (at your last-used interval, default 15 min) if it's off. *Assumed: yes.*
+   My Photos shuffle (at your last-used interval, default 15 min) if it's off. *Assumed: yes,* but **only with 2+
+   photos**: a 1-photo shuffle wedged the TV on 2026-10-23 (PROTOCOL.md).
 4. **Shuffle interval menu.** The TV accepts any value, so the app offers 3 min, 15 min, 1 h, 12 h and 1 day.
    *Assumed: those are enough.* (Which values does the TV's own menu offer?)
 5. **Finder files are referenced, not copied.** Photos dragged from Finder stay where they are (bookmarked);
