@@ -5,7 +5,7 @@ import Testing
 /// ArtClient end to end against a fake TV on 127.0.0.1 (never the real TV).
 @Suite(.serialized)
 struct ClientTests {
-    @Test func versionFallsBackToLegacyRequest() async throws {
+    @Test func versionUsesTheNameThisTVKnows() async throws {
         let tv = try await FakeTV { req, _ in
             switch req.name {
             case "api_version": return [try Fixture.reply("error-unsupported", id: req.id)]
@@ -14,9 +14,22 @@ struct ClientTests {
             }
         }
         defer { tv.stop() }
-        let version = try await tv.client().apiVersion()
-        #expect(version == "2.03")
-        #expect(tv.requests.map(\.name) == ["api_version", "get_api_version"])
+        let client = tv.client()
+        #expect(try await client.apiVersion() == "2.03")
+        #expect(try await client.apiVersion() == "2.03")
+        #expect(tv.requests.map(\.name) == ["get_api_version", "get_api_version"])
+    }
+
+    @Test func versionFallsBackWhenTheLegacyNameIsRejected() async throws {
+        // A newer TV: rejects get_api_version, answers api_version.
+        let tv = try await FakeTV { req, _ in
+            req.name == "api_version"
+                ? [Frame.d2d(["id": .string(req.id), "event": "api_version", "version": "4.3.4.0"])]
+                : [Frame.error(id: req.id, request: req.name, code: "-9")]
+        }
+        defer { tv.stop() }
+        #expect(try await tv.client().apiVersion() == "4.3.4.0")
+        #expect(tv.requests.map(\.name) == ["get_api_version", "api_version"])
     }
 
     @Test func requestsReuseOneConnection() async throws {
