@@ -45,6 +45,8 @@ final class AppModel {
     var adoptionProposals: [Adoption.Proposal] = []
     var isMatching = false
     var isSyncingAlbum = false
+    var isRotating = false
+    var lastRotation: Date? = UserDefaults.standard.object(forKey: Prefs.lastRotation) as? Date
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored private let sender: PhotoSender
@@ -58,7 +60,10 @@ final class AppModel {
         set { UserDefaults.standard.set(newValue, forKey: Prefs.shuffleMinutes) }
     }
 
+    @ObservationIgnored private var backgroundTask: Task<Void, Never>?
+
     init(store: LibraryStore = AppModel.defaultStore()) {
+        Prefs.register()
         self.store = store
         self.sender = PhotoSender(store: store)
     }
@@ -86,6 +91,89 @@ final class AppModel {
         }
         await connect()
         await syncAlbum(userInitiated: false)
+        startBackgroundLoop()
+    }
+
+    // MARK: Background (SPEC §7)
+
+    /// Every 15 minutes while Inframy runs: keep the slideshow on, and rotate the pool when it's due.
+    func startBackgroundLoop() {
+        guard backgroundTask == nil, ProcessInfo.processInfo.environment["INFRAMY_SNAPSHOT"] == nil else { return }
+        backgroundTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15 * 60))
+                await self?.backgroundTick()
+            }
+        }
+    }
+
+    func backgroundTick() async {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: Prefs.rotationEnabled), rotationDue {
+            await rotate(userInitiated: false)
+        }
+        if defaults.bool(forKey: Prefs.keepShuffleOn) { await reassertShuffle() }
+    }
+
+    var rotationDue: Bool {
+        let hours = UserDefaults.standard.integer(forKey: Prefs.rotationHours)
+        guard let last = lastRotation else { return true }
+        return Date().timeIntervalSince(last) >= Double(max(hours, 1)) * 3600
+    }
+
+    /// 2020 Frames sometimes stop the slideshow; turn it back on if My Photos has something to show.
+    func reassertShuffle() async {
+        if !tvState.isConnected { await connect() }
+        guard tvState.isConnected else { return }
+        guard let status = try? await withClient({ try await $0.slideshowStatus() }) else { return }
+        slideshow = status
+        let personal = (try? await withClient { try await $0.contentList() }) ?? []
+        if !personal.isEmpty, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
+            await setShuffle(on: true)
+        }
+    }
+
+    /// One rotation: upload the longest-absent photos, then take down the oldest Inframy photos (SPEC §7).
+    func rotate(userInitiated: Bool) async {
+        guard !isRotating else { return }
+        isRotating = true
+        defer { isRotating = false }
+        let defaults = UserDefaults.standard
+        if !tvState.isConnected { await connect() }
+        if !tvState.isConnected, defaults.bool(forKey: Prefs.wakeForRotation), let mac = SavedTV.load()?.wifiMAC {
+            try? WakeOnLAN.wake(mac: mac)
+            try? await Task.sleep(for: .seconds(20))
+            await connect()
+        }
+        guard tvState.isConnected, let client else {
+            if userInitiated { lastError = "Can't rotate: the TV isn't reachable." }
+            return
+        }
+        let pool = defaults.integer(forKey: Prefs.poolSize)
+        let plan = RotationPlanner.plan(photos: photos, poolSize: pool,
+                                        swapFraction: Double(defaults.integer(forKey: Prefs.swapPercent)) / 100)
+        if !plan.isEmpty {
+            let outcome = await Rotator(sender: sender).run(plan, photos: photos, client: client)
+            for p in outcome.updated { if let i = photos.firstIndex(where: { $0.id == p.id }) { photos[i] = p } }
+            saveLibrary()
+            if outcome.probablyFull {
+                // No storage query exists: treat a TV-side upload failure as "full" and shrink the pool to fit.
+                let onTV = photos.filter { $0.tvContentID != nil }.count
+                defaults.set(max(5, onTV), forKey: Prefs.poolSize)
+                lastError = "The TV seems to be full, so the pool is now \(max(5, onTV)) photos."
+            } else if !outcome.failures.isEmpty, userInitiated {
+                lastError = "Rotation finished with problems:\n" + outcome.failures.joined(separator: "\n")
+            }
+            await refreshTV()
+        }
+        lastRotation = Date()
+        defaults.set(lastRotation, forKey: Prefs.lastRotation)
+    }
+
+    func togglePin(_ id: UUID) {
+        guard let i = photos.firstIndex(where: { $0.id == id }) else { return }
+        photos[i].pinned = photos[i].pinned == true ? nil : true
+        saveLibrary()
     }
 
     // MARK: Photos album
@@ -246,6 +334,8 @@ final class AppModel {
             for i in photos.indices where photos[i].tvContentID.map(gone.contains) ?? false {
                 photos[i].tvContentID = nil
                 photos[i].uploadedRenderKey = nil
+                photos[i].onTVSince = nil
+                photos[i].lastOnTV = Date()
             }
             saveLibrary()
             if gone.count < ids.count { lastError = "The TV didn't confirm deleting \(ids.count - gone.count) item(s)." }

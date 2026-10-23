@@ -209,7 +209,13 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 
 ### Phase 4: Scale
 
-- [ ] Pool rotation, menu bar agent, Wake-on-LAN, shuffle re-assertion (§7).
+- [x] Pool rotation (`RotationPlanner`/`Rotator`): pool size, interval and swap % in Settings; uploads before
+      removals; only Inframy/linked photos come down; pinned photos stay; a TV-side upload failure shrinks the pool
+      ("probably full"). Off until enabled.
+- [x] Menu bar agent (`MenuBarExtra`) + Open at login (`SMAppService`).
+- [x] Wake-on-LAN (menu, CLI `wake`; optional before rotation, off by default).
+- [x] Shuffle re-assertion every 15 min while running ("Keep the slideshow on", on by default).
+- [ ] Verified on the real TV (pending Matt).
 
 ## 11. Risks
 
