@@ -52,7 +52,6 @@ struct CropEditorView: View {
             }
             return .handled
         }
-        .onKeyPress(.return) { accept(); return .handled }
         .onKeyPress(.escape) { model.editingPhotoID = nil; return .handled }
         .onKeyPress(.space) { showWall.toggle(); return .handled }
         .onKeyPress(characters: .init(charactersIn: "rR+=-_")) { press in
