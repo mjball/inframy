@@ -92,6 +92,12 @@ struct CropEditorView: View {
                     .foregroundStyle(geometry.upscale > 1.6 ? .orange : .secondary)
                     .help("The chosen area has fewer pixels than the TV. Zoom out for a sharper picture.")
             }
+            Toggle("Sharpen", isOn: Binding(
+                get: { photo?.sharpen ?? false },
+                set: { on in if var p = photo { p.sharpen = on ? true : nil; model.update(p) } }))
+                .toggleStyle(.checkbox)
+                .help("Light sharpening after resizing. Off by default; judge it on the TV.")
+                .disabled(mode == .skip)
             Button("Reset") { reset() }
                 .help("Back to the suggested position (R)")
                 .disabled(mode != .crop)

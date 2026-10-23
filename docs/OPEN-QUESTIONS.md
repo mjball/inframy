@@ -28,6 +28,11 @@ Change any of these and I'll adjust.
    *Assumed: they're separate actions.*
 7. **Mac: desktop or laptop?** (Open question from SPEC §7, affects Phase 4 rotation.) *Assumed: a laptop that's
    often away from home*, so rotation runs opportunistically when the TV is reachable.
+8. **Album sync is off by default.** Turning it on (Settings → Photos) triggers the Photos permission prompt.
+   *Assumed: album name "Frame", import only (photos removed from the album stay in the library and on the TV).*
+9. **Adoption threshold.** TV photos match library photos when their 64-bit dHash differs by ≤ 10 bits.
+   *Assumed: fine to start; tune once there's real data.* Linking requires your click per pair.
+10. **Sharpening is per photo** (checkbox in the crop editor) rather than global, so you can compare on the TV.
 
 ## Things only you can do
 

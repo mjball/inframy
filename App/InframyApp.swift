@@ -16,6 +16,10 @@ struct InframyApp: App {
                 }
         }
         .windowToolbarStyle(.unified)
+
+        Settings {
+            SettingsView().environment(model)
+        }
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Import Photos…") { NotificationCenter.default.post(name: .importPhotos, object: nil) }

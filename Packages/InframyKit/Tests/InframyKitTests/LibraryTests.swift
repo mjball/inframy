@@ -220,3 +220,38 @@ struct PhotoSenderTests {
         #expect(tv.requests.isEmpty)
     }
 }
+
+struct AlbumSyncTests {
+    @Test func onlyUnknownAlbumPhotosAreNew() {
+        var known = LibraryPhoto(id: UUID(), displayName: "a", source: .copy(filename: "a.jpg"), sha256: "1",
+                                 pixelWidth: 10, pixelHeight: 10, choice: .undecided, suggestedCenter: nil,
+                                 tvContentID: nil, uploadedRenderKey: nil, addedAt: Date())
+        known.photosLocalIdentifier = "A/L0/001"
+        #expect(PhotosAlbumSync.newIdentifiers(album: ["A/L0/001", "B/L0/001"], library: [known]) == ["B/L0/001"])
+    }
+
+    @Test func libraryDecodesWithoutNewFields() throws {
+        // A library.json written before photosLocalIdentifier/sharpen existed still loads.
+        let json = #"""
+        [{"id":"8C1B4E0A-8D64-4C34-9C5B-2D7C0E8F6A11","displayName":"x","source":{"copy":{"filename":"x.jpg"}},
+          "sha256":"s","pixelWidth":10,"pixelHeight":10,"choice":{"undecided":{}},"addedAt":"2026-10-23T10:00:00Z"}]
+        """#
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lib-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(json.utf8).write(to: dir.appendingPathComponent("library.json"))
+        let photos = LibraryStore(directory: dir).load()
+        #expect(photos.count == 1)
+        #expect(photos.first?.photosLocalIdentifier == nil && photos.first?.sharpen == nil)
+    }
+
+    @Test func sharpenChangesTheRenderKey() {
+        var p = LibraryPhoto(id: UUID(), displayName: "a", source: .copy(filename: "a.jpg"), sha256: "1",
+                             pixelWidth: 1920, pixelHeight: 1080, choice: .crop(.full), suggestedCenter: nil,
+                             tvContentID: nil, uploadedRenderKey: nil, addedAt: Date())
+        let plain = p.renderKey
+        p.sharpen = true
+        #expect(p.renderKey != plain)
+        #expect(p.renderSpec?.sharpen == true)
+    }
+}

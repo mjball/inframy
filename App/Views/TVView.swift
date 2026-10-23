@@ -6,6 +6,7 @@ struct TVView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Set<String> = []
     @State private var confirmingDelete = false
+    @State private var reviewingMatches = false
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 18)]
 
@@ -63,6 +64,8 @@ struct TVView: View {
 
     private var grid: some View {
         ScrollIfLive {
+          VStack(alignment: .leading, spacing: 0) {
+            if !model.unknownTVItems.isEmpty { adoptionBanner.padding([.horizontal, .top], 24) }
             LazyVGrid(columns: columns, spacing: 18) {
                 ForEach(model.tvItems, id: \.contentID) { item in
                     TVTile(item: item, selected: selection.contains(item.contentID),
@@ -82,7 +85,40 @@ struct TVView: View {
                 }
             }
             .padding(24)
+          }
         }
+    }
+
+    private var adoptionBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "link.badge.plus").font(.title2).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                let n = model.unknownTVItems.count
+                Text("\(n) photo\(n == 1 ? "" : "s") on the TV \(n == 1 ? "isn't" : "aren't") linked to your library")
+                    .font(.callout.weight(.medium))
+                Text("If you've imported the originals, Inframy can match them by how they look. You confirm each link.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if model.isMatching {
+                ProgressView().controlSize(.small)
+            } else if !model.adoptionProposals.isEmpty {
+                Button("Review \(model.adoptionProposals.count) Match\(model.adoptionProposals.count == 1 ? "" : "es")…") {
+                    reviewingMatches = true
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                Button("Find Matches") {
+                    Task {
+                        await model.findAdoptionMatches()
+                        if !model.adoptionProposals.isEmpty { reviewingMatches = true }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
+        .sheet(isPresented: $reviewingMatches) { AdoptionReview().frame(width: 620, height: 460) }
     }
 
     private func toggle(_ id: String) {
@@ -245,6 +281,73 @@ struct SendQueueView: View {
         case .replacing: return "Removing the old version from the TV…"
         case .done(let id): return "On the TV as \(id)"
         case .failed(let message): return message
+        }
+    }
+}
+
+/// Side-by-side review of proposed links between TV items and library photos.
+struct AdoptionReview: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Link TV photos to your library").font(.title3.weight(.semibold)).padding(16)
+            Text("Linked photos count as sent by Inframy: they show in the library as On TV, and changing their crop will replace the TV copy.")
+                .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 16)
+            Divider().padding(.top, 12)
+            List {
+                ForEach(model.adoptionProposals, id: \.contentID) { proposal in
+                    HStack(spacing: 14) {
+                        thumb(model.tvThumbnails[proposal.contentID], caption: "TV · \(proposal.contentID)")
+                        Image(systemName: "equal").foregroundStyle(.secondary)
+                        LibraryThumb(photoID: proposal.photoID)
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 6) {
+                            Text(similarity(proposal.distance)).font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Button("Not a Match") { model.dismissAdoption(proposal) }
+                                Button("Link") { model.acceptAdoption(proposal) }.buttonStyle(.borderedProminent)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+        .onChange(of: model.adoptionProposals.isEmpty) { _, empty in if empty { dismiss() } }
+    }
+
+    private func similarity(_ distance: Int) -> String {
+        distance <= 3 ? "Near-identical" : distance <= 6 ? "Very similar" : "Similar"
+    }
+
+    private func thumb(_ image: NSImage?, caption: String) -> some View {
+        VStack(spacing: 4) {
+            Group {
+                if let image { Image(nsImage: image).resizable().scaledToFill() } else { Rectangle().fill(.quaternary) }
+            }
+            .frame(width: 160, height: 90).clipShape(RoundedRectangle(cornerRadius: 5))
+            Text(caption).font(.caption2.monospaced()).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct LibraryThumb: View {
+    @Environment(AppModel.self) private var model
+    let photoID: UUID
+
+    var body: some View {
+        VStack(spacing: 4) {
+            if let photo = model.photos.first(where: { $0.id == photoID }) {
+                PhotoTile(photo: photo).frame(width: 160)
+            }
         }
     }
 }
