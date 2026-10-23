@@ -238,13 +238,15 @@ final class AppModel {
     }
 
     /// Runs `body` against the TV, reconnecting once if the connection dropped.
-    private func withClient<T>(_ body: (ArtClient) async throws -> T) async throws -> T {
+    /// Runs `body` against the TV. With `retry`, reconnects and tries once more if the connection had dropped
+    /// (not on timeouts: the TV may have acted on the first attempt). Never retry uploads, which aren't idempotent.
+    private func withClient<T>(retry: Bool = true, _ body: (ArtClient) async throws -> T) async throws -> T {
         if client == nil { await connect() }
         guard let client else { throw AppError("Not connected to the TV.") }
         do {
             return try await body(client)
         } catch let e as ArtError {
-            if case .tv = e { throw e }
+            guard retry, case .disconnected = e else { throw e }
             await connect()
             guard let again = self.client else { throw e }
             return try await body(again)
@@ -458,7 +460,7 @@ final class AppModel {
             }
             do {
                 let jobID = job.id
-                let updated = try await withClient { client in
+                let updated = try await withClient(retry: false) { client in
                     try await sender.send(photo, via: client) { stage in
                         Task { @MainActor in self.apply(stage, to: jobID) }
                     }
