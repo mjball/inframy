@@ -311,6 +311,14 @@ InframyKit pins it after `pair`.
 → `MY_F0003` (`content_type` `mobile`, `matte_id` `none`), `select_image` → art mode on and showing,
 `set_auto_rotation_status` 15 / `shuffleslideshow` / `MY-C0002` → status reads back on.
 
+### Art service stalls ⚠️
+
+2026-10-23, after a cold boot (TV back on DHCP, so with internet): the WebSocket still connects
+(`ms.channel.connect` + `ready`) and REST answers, but the art service intermittently **ignores every request**:
+no reply, no error, for 45 s+. The whole TV was laggy at the time. Unsupported names (`api_version`) were also
+ignored instead of getting `-9`. **Fix that worked:** remote power button → TV mode → back to Art mode; replies
+returned at ~0.1 s. Clients should use short timeouts and tell the user about this remedy.
+
 ### Content list duplicates
 
 Unfiltered `get_content_list` lists each personal photo **twice**: once with `category_id` `MY-C0002` and once

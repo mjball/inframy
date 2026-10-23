@@ -15,19 +15,31 @@ public actor ArtClient {
 
     // MARK: Info
 
-    /// Newer TVs answer `api_version`; older ones (Matt's 2.03) reject it with -9 and answer `get_api_version`.
+    /// Newer TVs answer `api_version`; older ones (Matt's 2.03) answer `get_api_version`. An unsupported name may be
+    /// rejected with -9 *or silently ignored* (seen on Matt's TV after a cold boot), so each attempt gets a short
+    /// timeout. The name that worked is remembered.
     public func apiVersion() async throws -> String {
-        let reply: ArtMessage
-        do {
-            reply = try await connection.request("api_version")
-        } catch let e as ArtError where e.isUnsupportedRequest {
-            reply = try await connection.request("get_api_version")
+        let names = versionRequest.map { [$0] } ?? ["get_api_version", "api_version"]
+        var lastError: Error = ArtError.unexpectedResponse("no version")
+        for name in names {
+            do {
+                let reply = try await connection.request(name, timeout: .seconds(6))
+                guard let version = reply["version"]?.stringValue else {
+                    throw ArtError.unexpectedResponse("no version in `\(reply.event)`")
+                }
+                versionRequest = name
+                return version
+            } catch let e as ArtError {
+                switch e {
+                case .tv, .timedOut: lastError = e; continue
+                default: throw e
+                }
+            }
         }
-        guard let version = reply["version"]?.stringValue else {
-            throw ArtError.unexpectedResponse("no version in `\(reply.event)`")
-        }
-        return version
+        throw lastError
     }
+
+    private var versionRequest: String?
 
     public func deviceInfo() async throws -> JSON {
         try await connection.request("get_device_info").payload

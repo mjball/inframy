@@ -270,6 +270,10 @@ final class AppModel {
             }
             if changed { saveLibrary() }
             await loadTVThumbnails()
+        } catch ArtError.timedOut {
+            // Seen on Matt's TV: the connection is up but the art service stops answering. Switching the TV to TV
+            // mode and back to Art mode with the remote restarts it.
+            tvState = .unavailable("The TV's art service isn't responding. Press the remote's power button to switch to TV mode and back to Art mode, then Reconnect.")
         } catch {
             lastError = "Couldn't read the TV: \(error)"
         }
