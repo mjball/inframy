@@ -184,7 +184,8 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
       `rm <ids…>`, `shuffle on|off [--interval]`. No automatic cropping: `upload` takes exact-16:9 images as-is,
       otherwise needs an explicit `--rect` (normalized) or `--fit`; `suggest` prints the suggested center/frame.
 - [x] Read-only CLI commands verified on the TV (`discover`, `pair`, `info`, `ls`, `thumbs`).
-- [ ] *With Matt's OK:* `upload` + `shuffle on` on the real TV.
+- [x] *With Matt's OK:* `upload` + `shuffle on` on the real TV (2026-10-23): `IMG_0296.heic` (4:3) with Matt's
+      approved `--rect` → `MY_F0003`, matte none, shown; shuffle every 15 min on `MY-C0002`.
 - **Done when:** `inframy-cli upload photo.jpg` puts a mat-free, full-screen photo into the shuffle.
 
 ### Phase 2: The app (MVP)
