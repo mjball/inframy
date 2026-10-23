@@ -72,6 +72,10 @@ struct RootView: View {
             Menu {
                 Button("From Files…") { showingFileImporter = true }
                 PhotosPicker("From Photos…", selection: $pickerItems, matching: .images)
+                if model.albumSyncEnabled {
+                    Divider()
+                    Button("Sync \u{201C}\(model.albumName)\u{201D} Album") { Task { await model.syncAlbum(userInitiated: true) } }
+                }
             } label: {
                 Label("Import", systemImage: "plus")
             } primaryAction: {

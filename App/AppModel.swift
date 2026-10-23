@@ -41,6 +41,10 @@ final class AppModel {
     var editingPhotoID: UUID?
     var lastError: String?
     var isRefreshingTV = false
+    /// TV items that look like library photos, waiting for Matt to confirm (SPEC §6 adoption).
+    var adoptionProposals: [Adoption.Proposal] = []
+    var isMatching = false
+    var isSyncingAlbum = false
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored private let sender: PhotoSender
@@ -50,8 +54,8 @@ final class AppModel {
 
     /// Preferred slideshow interval when Inframy turns shuffle on.
     var shuffleMinutes: Int {
-        get { UserDefaults.standard.object(forKey: "shuffleMinutes") as? Int ?? 15 }
-        set { UserDefaults.standard.set(newValue, forKey: "shuffleMinutes") }
+        get { UserDefaults.standard.object(forKey: Prefs.shuffleMinutes) as? Int ?? 15 }
+        set { UserDefaults.standard.set(newValue, forKey: Prefs.shuffleMinutes) }
     }
 
     init(store: LibraryStore = AppModel.defaultStore()) {
@@ -81,6 +85,32 @@ final class AppModel {
         default: break
         }
         await connect()
+        await syncAlbum(userInitiated: false)
+    }
+
+    // MARK: Photos album
+
+    var albumSyncEnabled: Bool { UserDefaults.standard.bool(forKey: Prefs.albumSyncEnabled) }
+    var albumName: String { UserDefaults.standard.string(forKey: Prefs.albumName) ?? PhotosAlbumSync.defaultAlbumName }
+
+    /// Imports new photos from the configured Photos album. Quiet unless the user asked or something was added.
+    func syncAlbum(userInitiated: Bool) async {
+        guard albumSyncEnabled, !isSyncingAlbum else { return }
+        isSyncingAlbum = true
+        defer { isSyncingAlbum = false }
+        do {
+            let result = try await PhotosAlbumSync.sync(albumName: albumName, store: store, library: photos)
+            for photo in result.linked { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
+            photos.append(contentsOf: result.imported)
+            if !result.imported.isEmpty || !result.linked.isEmpty { saveLibrary() }
+            if userInitiated || !result.imported.isEmpty || !result.failures.isEmpty {
+                var text = "\(result.imported.count) new photo\(result.imported.count == 1 ? "" : "s") from \"\(albumName)\"."
+                if !result.failures.isEmpty { text += " Couldn't export: \(result.failures.joined(separator: ", "))." }
+                lastError = text
+            }
+        } catch {
+            if userInitiated { lastError = String(describing: error) }
+        }
     }
 
     // MARK: TV
@@ -162,6 +192,48 @@ final class AppModel {
             tvThumbnails[item.contentID] = image
         }
     }
+
+    /// TV items with no library photo behind them.
+    var unknownTVItems: [ContentItem] { tvItems.filter { photo(forTVItem: $0.contentID) == nil } }
+
+    /// Compares unknown TV items with library photos by perceptual hash and proposes links. Never links or
+    /// deletes anything by itself.
+    func findAdoptionMatches() async {
+        isMatching = true
+        defer { isMatching = false }
+        var tvHashes: [String: UInt64] = [:]
+        for item in unknownTVItems {
+            if tvThumbnails[item.contentID] == nil {
+                if let data = try? await withClient({ try await $0.thumbnail(item.contentID) }), let image = NSImage(data: data) {
+                    tvThumbnails[item.contentID] = image
+                }
+            }
+            if let cg = tvThumbnails[item.contentID]?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                tvHashes[item.contentID] = PerceptualHash.dHash(cg)
+            }
+        }
+        let candidates = photos.filter { $0.tvContentID == nil && $0.renderSpec != nil }
+        let store = self.store
+        let photoHashes = await Task.detached {
+            var hashes: [UUID: UInt64] = [:]
+            for photo in candidates { hashes[photo.id] = PerceptualHash.panelHash(of: photo, store: store) }
+            return hashes
+        }.value
+        adoptionProposals = Adoption.propose(tvHashes: tvHashes, photoHashes: photoHashes)
+        if adoptionProposals.isEmpty {
+            lastError = candidates.isEmpty
+                ? "No library photos with a chosen crop to compare against. Import and crop the originals first."
+                : "No matches between the TV and your library."
+        }
+    }
+
+    func acceptAdoption(_ proposal: Adoption.Proposal) {
+        guard let photo = photos.first(where: { $0.id == proposal.photoID }) else { return }
+        update(Adoption.link(photo, to: proposal.contentID))
+        adoptionProposals.removeAll { $0 == proposal }
+    }
+
+    func dismissAdoption(_ proposal: Adoption.Proposal) { adoptionProposals.removeAll { $0 == proposal } }
 
     /// The library photo that was uploaded as this TV item, if any.
     func photo(forTVItem id: String) -> LibraryPhoto? { photos.first { $0.tvContentID == id } }

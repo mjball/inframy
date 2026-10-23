@@ -36,6 +36,10 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     /// Cache key of the render that was uploaded; if the crop changes, the TV copy is stale.
     public var uploadedRenderKey: String?
     public var addedAt: Date
+    /// PhotoKit `localIdentifier` when the photo came from the synced Photos album.
+    public var photosLocalIdentifier: String? = nil
+    /// Light unsharp mask after resizing (SPEC §5: off by default, judged on the actual TV).
+    public var sharpen: Bool? = nil
 
     public var imageSize: CGSize { CGSize(width: pixelWidth, height: pixelHeight) }
     public var aspect: Double { Double(pixelWidth) / Double(max(pixelHeight, 1)) }
@@ -44,8 +48,8 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
 
     public var renderSpec: RenderSpec? {
         switch choice {
-        case .crop(let rect): return RenderSpec(mode: .crop(rect))
-        case .fitWithBlur: return RenderSpec(mode: .fitWithBlur)
+        case .crop(let rect): return RenderSpec(mode: .crop(rect), sharpen: sharpen ?? false)
+        case .fitWithBlur: return RenderSpec(mode: .fitWithBlur, sharpen: sharpen ?? false)
         case .undecided, .skip: return nil
         }
     }

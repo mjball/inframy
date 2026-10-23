@@ -190,18 +190,22 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 
 ### Phase 2: The app (MVP)
 
-- [ ] Pair/connect UI with TV status.
-- [ ] Import by drag-and-drop from Finder and Photos, and a Photos picker.
-- [ ] Crop editor per §4.
-- [ ] "Send to TV" with progress queue.
-- [ ] "On the TV" grid with thumbnails and multi-select delete.
+- [x] Pair/connect UI with TV status (automatic: finds, pins and remembers the TV).
+- [x] Import by drag-and-drop from Finder and Photos, and a Photos picker.
+- [x] Crop editor per §4 (manual crops only; suggestion sets the starting frame).
+- [x] "Send to TV" with progress queue.
+- [x] "On the TV" grid with thumbnails and multi-select delete.
+- [x] App icon (Liquid Glass `.icon`).
+- [ ] Verified end to end on the real TV (pending Matt; see docs/OPEN-QUESTIONS.md).
 - **Done when:** Matt can go from photos in Finder/Photos to shuffling on the TV without touching SmartThings.
 
 ### Phase 3: Library smarts
 
-- [ ] Ledger, dedup, adoption of pre-existing TV images (§6).
-- [ ] Photos album sync ("Frame" album).
-- [ ] Portrait modes (blur fill, skip).
+- [x] Ledger, dedup, adoption of pre-existing TV images (§6): dHash of TV thumbnails vs library crops, proposals
+      reviewed side by side; nothing links or deletes automatically.
+- [x] Photos album sync ("Frame" album, configurable in Settings; off until enabled). New album photos arrive
+      as "needs crop"; edited versions are used.
+- [x] Portrait modes (blur fill, skip): shipped in Phase 2's crop editor.
 
 ### Phase 4: Scale
 
