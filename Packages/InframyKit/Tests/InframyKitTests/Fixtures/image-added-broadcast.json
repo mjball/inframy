@@ -1,0 +1,1 @@
+{"data":"{\n  \"event\": \"image_added\",\n  \"content_id\": \"MY_F0001\",\n  \"category_id\": \"MY-C0002\",\n  \"matte_id\": \"none\",\n  \"portrait_matte_id\": \"none\",\n  \"width\": \"3840\",\n  \"height\": \"2160\"\n}","event":"d2d_service_message","from":"c9136dd5-78a2-4d61-96e7-622bcbab15bb"}
