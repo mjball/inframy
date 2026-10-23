@@ -89,7 +89,7 @@ struct LibraryView: View {
         if photo.tvContentID != nil {
             Button(photo.pinned == true ? "Unpin (allow rotation)" : "Pin on TV (never rotate off)") { model.togglePin(photo.id) }
         }
-        Button("Send to TV") { model.send([photo.id]) }
+        Button("Send to TV") { Task { await model.requestSend([photo.id]) } }
             .disabled(photo.renderSpec == nil || !model.tvState.isConnected)
         if let url = model.url(for: photo) {
             Button("Show Original in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
