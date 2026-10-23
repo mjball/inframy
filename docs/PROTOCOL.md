@@ -253,9 +253,49 @@ Notes:
 
 Other event seen while listening: `{"event":"go_to_standby"}` (broadcast, `d2d_service_message`) when the TV slept.
 
-### Still to verify (needs Matt's OK, changes the TV)
+### Slideshow (shuffle) ✅
 
-- Delete `MY_F0001` and `MY_F0002` (test images) via `delete_image_list`.
-- `set_auto_rotation_status`: accepted `value` intervals and `type` (`shuffleslideshow`), category `MY-C0002`.
-- `select_image`, `delete_image_list` on the test image.
+2026-10-23, with Matt's OK, while `MY_F0001` and `MY_F0002` were on the TV. Slideshow was `off` before and was
+set back to `off` after.
+
+```json
+→ data: {"request":"set_auto_rotation_status","value":"15","category_id":"MY-C0002","type":"shuffleslideshow","id":"…","request_id":"…"}
+← {"id":"…","event":"auto_rotation_changed","value":"15","category_id":"MY-C0002","sub_category_id":null,"type":"shuffleslideshow"}
+→ data: {"request":"get_auto_rotation_status","id":"…","request_id":"…"}
+← {"id":"…","event":"auto_rotation_status","value":"15","category_id":"MY-C0002","sub_category_id":"",
+   "current_content_id":"MY_F0002","type":"shuffleslideshow",
+   "content_list":"[{\"content_id\":\"MY_F0002\",\"category_id\":\"MY-C0002\",\"sub_category_id\":\"\",\"matte_id\":\"none\",\"portrait_matte_id\":\"none\",\"width\":3840,\"height\":2160}, …]"}
+```
+
+- `value` is minutes as a string, or `"off"`. **Every value tried was accepted and echoed back: 3, 15, 60, 720,
+  1440, and also 7.** The TV doesn't validate intervals, so whether an odd value like 7 is actually honoured is
+  unverified. Stick to values the TV's own menu offers.
+- `value:"off"` → `auto_rotation_changed` `off`; status then reads back with empty `category_id`, `type`, `content_list`.
+- Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
+- `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
+
+### Delete ✅
+
+2026-10-23, with Matt's OK: deleted the two test images.
+
+```json
+→ data: {"request":"delete_image_list","content_id_list":[{"content_id":"MY_F0001"},{"content_id":"MY_F0002"}],"id":"a7dc8f7b-…","request_id":"a7dc8f7b-…"}
+← {"event":"image_deleted","content_id":"MY_F0001"}                      (broadcast, one per item)
+← {"event":"image_deleted","content_id":"MY_F0002"}
+← {"id":"a7dc8f7b-…","event":"image_list_deleted","content_id_list":"[{\"content_id\":\"MY_F0001\"},{\"content_id\":\"MY_F0002\"}]"}
+```
+
+- Final response is `image_list_deleted`; its `content_id_list` is a JSON **string** (pretty-printed, with newlines).
+- Deleting the displayed image made the TV fall back to `SAM-F0103`. TV now holds only `SAM-F0103` again.
+
+### Content list duplicates
+
+Unfiltered `get_content_list` lists each personal photo **twice**: once with `category_id` `MY-C0002` and once
+with `M0002` (the category the preinstalled `SAM-F0103` is in; probably "recent"). Always filter by
+`MY-C0002` or dedupe by `content_id`.
+
+### Still to verify
+
 - Whether a `token` ever appears (e.g. if the TV's Access Notification setting changes).
+- Whether odd slideshow intervals (e.g. 7 min) are honoured; which intervals the TV menu offers.
+- Upload capacity limit and its error (Phase 4 concern).

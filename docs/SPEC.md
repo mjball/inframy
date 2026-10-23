@@ -163,9 +163,10 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - [x] One thumbnail downloaded (d2d socket).
 - [x] *With Matt's OK:* upload one test image with matte `none` → `MY_F0001` (d2d socket, plain TCP).
 - [x] *With Matt's OK:* display an upload and confirm it's full-screen with no mat (`MY_F0002`; no cropping).
-- [ ] *With Matt's OK:* set shuffle on the personal category; note which command and interval values are accepted.
-- [ ] *With Matt's OK:* delete the test images (`MY_F0001`, `MY_F0002`).
-- [ ] Capture raw JSON for each exchange as test fixtures.
+- [x] *With Matt's OK:* set shuffle on the personal category: `set_auto_rotation_status`, `type: shuffleslideshow`;
+      any interval string is accepted (3/15/60/720/1440 and even 7). Restored to off.
+- [x] *With Matt's OK:* delete the test images (`MY_F0001`, `MY_F0002`) via `delete_image_list`.
+- [x] Capture raw JSON for each exchange (in `docs/PROTOCOL.md`; copy into test fixtures in Phase 1).
 
 ### Phase 1: CLI + core (InframyKit)
 
