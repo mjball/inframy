@@ -305,6 +305,12 @@ our `id` carries `conn_info` → read 4-byte header length + header JSON (`fileL
 The TV's TLS certificate (port 8002) SHA-256: `0426ac7f01afe6494c5c6c008070cb1daaa3c7abf8fcf0738fd52c333362ea8a`.
 InframyKit pins it after `pair`.
 
+### Swift client on the real TV ✅
+
+2026-10-23, with Matt's OK, all through `inframy-cli`: upload of a HEIC photo (rendered to 3840×2160 sRGB JPEG)
+→ `MY_F0003` (`content_type` `mobile`, `matte_id` `none`), `select_image` → art mode on and showing,
+`set_auto_rotation_status` 15 / `shuffleslideshow` / `MY-C0002` → status reads back on.
+
 ### Content list duplicates
 
 Unfiltered `get_content_list` lists each personal photo **twice**: once with `category_id` `MY-C0002` and once

@@ -345,7 +345,7 @@ struct Shuffle: AsyncParsableCommand {
         try await client.setSlideshow(intervalMinutes: state == .on ? interval : nil, shuffle: !ordered)
         let status = try await client.slideshowStatus()
         if let minutes = status.intervalMinutes {
-            print("Slideshow on: \(status.isShuffle ? "shuffle" : "in order") every \(minutes) min (\(status.contentIDs.count) photos).")
+            print("Slideshow on: \(status.isShuffle ? "shuffle" : "in order") every \(minutes) min (\(status.contentIDs.count) photo\(status.contentIDs.count == 1 ? "" : "s")).")
         } else {
             print("Slideshow off.")
         }
