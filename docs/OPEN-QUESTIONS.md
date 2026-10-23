@@ -33,6 +33,15 @@ Change any of these and I'll adjust.
 9. **Adoption threshold.** TV photos match library photos when their 64-bit dHash differs by ≤ 10 bits.
    *Assumed: fine to start; tune once there's real data.* Linking requires your click per pair.
 10. **Sharpening is per photo** (checkbox in the crop editor) rather than global, so you can compare on the TV.
+11. **Rotation is off by default** (Settings → Rotation). Defaults when you turn it on: keep 40 photos on the TV,
+    rotate daily, swap 20% each time. *Assumed: you'd rather opt in before Inframy starts taking photos down.*
+    The TV's capacity is unknown; if an upload fails on the TV's side, Inframy assumes it's full and shrinks the pool.
+12. **Waking the TV for rotation is off by default.** Waking turns the screen on, possibly at night.
+    *Assumed: not wanted unless you say so.*
+13. **"Keep the slideshow on" is on by default.** If the TV's shuffle stops (or someone turns it off with the
+    remote), Inframy turns it back on within 15 minutes while it's running. *Assumed: that's the point (SPEC §7).*
+    If the household sometimes wants it off, untick it in Settings.
+14. **Pinning.** Right-click a photo that's on the TV → "Pin on TV" to exclude it from rotation.
 
 ## Things only you can do
 
@@ -46,4 +55,5 @@ Change any of these and I'll adjust.
 - Phase 2 app: drag a photo in from the Photos app (Finder drags and the picker are standard; Photos uses file
   promises, which I couldn't test without a mouse).
 - The TV was asleep from ~11:00 while you were away, so the app's live-TV screens are untested on the real TV.
+- Phase 4: turn on rotation with a small pool and check uploads happen before removals; check the menu bar item.
 

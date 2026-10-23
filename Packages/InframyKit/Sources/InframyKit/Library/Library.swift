@@ -40,6 +40,12 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var photosLocalIdentifier: String? = nil
     /// Light unsharp mask after resizing (SPEC §5: off by default, judged on the actual TV).
     public var sharpen: Bool? = nil
+    /// When the current TV copy went up (rotation takes the oldest down first).
+    public var onTVSince: Date? = nil
+    /// When it last left the TV (rotation brings back the longest-absent first).
+    public var lastOnTV: Date? = nil
+    /// Never rotated off the TV.
+    public var pinned: Bool? = nil
 
     public var imageSize: CGSize { CGSize(width: pixelWidth, height: pixelHeight) }
     public var aspect: Double { Double(pixelWidth) / Double(max(pixelHeight, 1)) }

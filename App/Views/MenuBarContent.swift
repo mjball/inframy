@@ -1,0 +1,44 @@
+import InframyKit
+import SwiftUI
+
+/// The menu bar item: TV status and the background chores, available even with the window closed.
+struct MenuBarContent: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Text(status)
+        if let s = model.slideshow, let m = s.intervalMinutes {
+            Text("Shuffling \(s.contentIDs.count) photos, every \(m) min")
+        } else if model.tvState.isConnected {
+            Text("Slideshow off")
+        }
+        Divider()
+        Button("Open Inframy") {
+            NSApp.activate()
+            openWindow(id: "main")
+        }
+        Button("Send Ready Photos (\(model.readyToSend.count))") { model.send(model.readyToSend.map(\.id)) }
+            .disabled(model.readyToSend.isEmpty || !model.tvState.isConnected)
+        Button("Rotate Now") { Task { await model.rotate(userInitiated: true) } }
+            .disabled(!UserDefaults.standard.bool(forKey: Prefs.rotationEnabled) || model.isRotating)
+        Button("Turn Shuffle On") { Task { await model.setShuffle(on: true) } }
+            .disabled(!model.tvState.isConnected || model.slideshow?.isOn == true)
+        Divider()
+        Button("Reconnect") { Task { await model.connect() } }
+        Button("Wake TV") { model.wake() }
+            .disabled(SavedTV.load()?.wifiMAC == nil)
+        Divider()
+        SettingsLink { Text("Settings…") }
+        Button("Quit Inframy") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
+    }
+
+    private var status: String {
+        switch model.tvState {
+        case .connected: return "\(model.tvName): connected"
+        case .searching: return "Connecting to the TV…"
+        case .unavailable: return "TV not reachable"
+        }
+    }
+}

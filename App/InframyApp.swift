@@ -6,7 +6,7 @@ struct InframyApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup("Inframy") {
+        WindowGroup("Inframy", id: "main") {
             RootView()
                 .environment(model)
                 .frame(minWidth: 980, minHeight: 640)
@@ -19,6 +19,12 @@ struct InframyApp: App {
 
         Settings {
             SettingsView().environment(model)
+        }
+
+        MenuBarExtra {
+            MenuBarContent().environment(model)
+        } label: {
+            Image(systemName: model.tvState.isConnected ? "photo.artframe" : "photo.artframe.circle")
         }
         .commands {
             CommandGroup(after: .newItem) {
