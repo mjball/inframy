@@ -1,0 +1,47 @@
+name: Inframy
+options:
+  bundleIdPrefix: net.mjball
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+packages:
+  InframyKit:
+    path: Packages/InframyKit
+targets:
+  Inframy:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: InframyKit
+        product: InframyKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Inframy
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.photography
+        NSLocalNetworkUsageDescription: Inframy talks to your Frame TV over the local network to upload and manage your photos.
+        NSBonjourServices:
+          - _samsungmsf._tcp
+        NSPhotoLibraryUsageDescription: Inframy reads the photos you choose so it can send them to your Frame TV.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.mjball.inframy
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        GENERATE_INFOPLIST_FILE: NO
+schemes:
+  Inframy:
+    build:
+      targets:
+        Inframy: all
+    test:
+      testPlans: []

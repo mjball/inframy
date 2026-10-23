@@ -47,8 +47,8 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
    TV does issue one, it goes in the Keychain.
 2. **Import.** Drag photos from Finder or Photos into the window, use a Photos picker, or (Phase 3) designate a
    Photos album ("Frame") that Inframy keeps in sync.
-3. **Crop.** Every photo gets an automatic 16:9 crop. Matt reviews them in a fast crop editor (§4) and fixes any he
-   doesn't like.
+3. **Crop.** Matt picks the 16:9 area for every photo in a fast crop editor (§4). Inframy never crops on its own:
+   computer vision only suggests where the frame starts.
 4. **Send.** One button. Inframy renders, dedupes, uploads with no mat, and ensures shuffle is on for the TV's
    personal-photos collection.
 5. **See the TV.** A grid of what's actually on the TV (thumbnails), marked as Inframy-managed, adopted (matched to a
@@ -62,11 +62,16 @@ Matt explicitly wants 16:9 cropping to be *super easy*. Requirements:
   gesture, not corner handles.
 - **Pan:** drag. **Zoom:** scroll wheel / pinch / `+` `-`. Minimum zoom = image fully covers the frame (no empty
   space, unless the photo is in "fit" mode, below).
-- **Smart default:** initial crop centered on Vision's attention-based saliency
-  (`VNGenerateAttentionBasedSaliencyImageRequest`) biased toward detected faces; fall back to center crop.
+- **No automatic cropping (Matt's call).** Every crop is chosen by Matt. A photo can't be sent until he has accepted
+  its crop (or picked "Fit with blur fill"/"Skip"). There is no "accept all"; images that are already exactly 16:9
+  need no crop and are only resized.
+- **Suggested starting position:** the frame starts as the largest 16:9 rect centered on a suggested point: detected
+  faces (with headroom), else Vision's attention-based saliency (`VNGenerateAttentionBasedSaliencyImageRequest`),
+  else the image center. Show the suggestion as a subtle marker so it's clear it's only a hint.
+  (`CropSuggestion` in InframyKit.)
 - **Batch flow:** a filmstrip of pending photos. Keys: arrows nudge the crop, `Return` = accept and go to next,
-  `Space` = full-screen preview, `R` = reset to smart crop, `⌘A` then "Accept all" for trusting the defaults.
-  Accepting a crop without touching it should be one keystroke.
+  `Space` = full-screen preview, `R` = reset to the suggested position. Accepting the suggested position is still one
+  keystroke (`Return`), but it's always an explicit choice per photo.
 - **Preview as on the wall:** show the crop inside a white bezel at TV proportions.
 - **Quality warning:** if the crop region is narrower than 3840 source pixels, show a badge with the effective
   resolution (e.g. "upscaled 1.6×") so Matt can zoom out or skip it.
@@ -170,12 +175,16 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 
 ### Phase 1: CLI + core (InframyKit)
 
-- [ ] Scaffold: `project.yml`, app target (empty window), `InframyKit` package, `inframy-cli`.
-- [ ] TV client with pairing, version negotiation, list, thumbnail, upload (the transport Phase 0 proved),
-      delete, change matte, set shuffle. Fake-server tests from Phase 0 fixtures.
-- [ ] Image pipeline with tests.
-- [ ] CLI: `pair`, `info`, `ls`, `thumbs <dir>`, `upload <files…> [--crop center|smart]`, `rm <ids…>`,
-      `shuffle on|off [--interval]`.
+- [x] Scaffold: `project.yml`, app target (empty window), `InframyKit` package, `inframy-cli`.
+- [x] TV client with pairing, version negotiation, list, thumbnail, upload (the transport Phase 0 proved),
+      delete, change matte, set shuffle. Fake-server tests from Phase 0 fixtures. Bonjour discovery,
+      certificate pinning (trust on first use), Wake-on-LAN.
+- [x] Image pipeline with tests.
+- [x] CLI: `pair`, `info`, `ls`, `thumbs <dir>`, `upload <files…> [--rect x,y,w,h | --fit]`, `suggest <file>`,
+      `rm <ids…>`, `shuffle on|off [--interval]`. No automatic cropping: `upload` takes exact-16:9 images as-is,
+      otherwise needs an explicit `--rect` (normalized) or `--fit`; `suggest` prints the suggested center/frame.
+- [x] Read-only CLI commands verified on the TV (`discover`, `pair`, `info`, `ls`, `thumbs`).
+- [ ] *With Matt's OK:* `upload` + `shuffle on` on the real TV.
 - **Done when:** `inframy-cli upload photo.jpg` puts a mat-free, full-screen photo into the shuffle.
 
 ### Phase 2: The app (MVP)

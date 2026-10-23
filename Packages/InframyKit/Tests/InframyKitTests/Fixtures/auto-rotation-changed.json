@@ -1,0 +1,1 @@
+{"data":"{\n  \"id\": \"62eb3f24-ca4c-41e9-96ea-a556bd92ca93\",\n  \"event\": \"auto_rotation_changed\",\n  \"value\": \"15\",\n  \"category_id\": \"MY-C0002\",\n  \"sub_category_id\": null,\n  \"type\": \"shuffleslideshow\",\n  \"target_client_id\": \"99c86cf1-2b61-4a65-93b7-a33a69144cae\"\n}","event":"d2d_service_message","from":"8ae87cdc-4799-45dc-9a5b-c4b459233f16"}

@@ -6,7 +6,9 @@ Inframy is a native macOS app that manages Matt's own photos as art on his Samsu
 - **Full plan:** `docs/SPEC.md`. Read the section for the current phase before writing code.
 - **TV protocol:** `docs/PROTOCOL.md`. Everything there is reverse-engineered secondhand until verified
   against Matt's TV. Record verified facts there with raw request/response JSON (tokens redacted).
-- **Current phase:** Phase 0 (probe the real TV). See `docs/SPEC.md` → Phases.
+- **Current phase:** Phase 1 (CLI + InframyKit). Phase 0 is done; its findings are in `docs/PROTOCOL.md`.
+- **Cropping is always Matt's choice.** Never crop automatically; computer vision may only suggest a starting
+  position (`CropSuggestion`). See `docs/SPEC.md` §4.
 
 ## Ground rules
 

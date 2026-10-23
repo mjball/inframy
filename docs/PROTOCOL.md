@@ -288,6 +288,23 @@ set back to `off` after.
 - Final response is `image_list_deleted`; its `content_id_list` is a JSON **string** (pretty-printed, with newlines).
 - Deleting the displayed image made the TV fall back to `SAM-F0103`. TV now holds only `SAM-F0103` again.
 
+### Broadcast copies arrive first
+
+Several changes are announced twice: a broadcast without `id` and a reply with our `id`. For
+`set_auto_rotation_status` the TV sent the **broadcast first**, then the reply. Correlate by `id` and ignore
+the extra copy (InframyKit routes unclaimed messages to a broadcast stream).
+
+### Thumbnail (Swift client) ✅
+
+`inframy-cli thumbs` fetched `SAM-F0103` (33,041 bytes) via `get_thumbnail` with `conn_info` → first reply with
+our `id` carries `conn_info` → read 4-byte header length + header JSON (`fileLength`, `fileID`, `fileType`,
+`num`, `total`) + bytes from the d2d socket.
+
+### Certificate
+
+The TV's TLS certificate (port 8002) SHA-256: `0426ac7f01afe6494c5c6c008070cb1daaa3c7abf8fcf0738fd52c333362ea8a`.
+InframyKit pins it after `pair`.
+
 ### Content list duplicates
 
 Unfiltered `get_content_list` lists each personal photo **twice**: once with `category_id` `MY-C0002` and once
