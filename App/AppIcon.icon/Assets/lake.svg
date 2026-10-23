@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4A3277"/>
+      <stop offset="0.5" stop-color="#271C52"/>
+      <stop offset="1" stop-color="#140F2E"/>
+    </linearGradient>
+    <linearGradient id="reflect" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC48A" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#FF9A62" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="702" width="1024" height="322" fill="url(#water)"/>
+  <!-- The sun's reflection: soft shimmer bars that thin out with distance. -->
+  <g fill="url(#reflect)">
+    <rect x="420" y="712" width="184" height="10" rx="5"/>
+    <rect x="440" y="734" width="144" height="8" rx="4" opacity="0.85"/>
+    <rect x="456" y="754" width="112" height="7" rx="3.5" opacity="0.7"/>
+    <rect x="472" y="772" width="80" height="6" rx="3" opacity="0.55"/>
+    <rect x="486" y="789" width="52" height="5" rx="2.5" opacity="0.4"/>
+  </g>
+  <rect x="0" y="702" width="1024" height="2" fill="#FFD9A8" opacity="0.35"/>
+</svg>

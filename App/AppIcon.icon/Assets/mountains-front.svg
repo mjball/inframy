@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E2160"/>
+      <stop offset="1" stop-color="#17122F"/>
+    </linearGradient>
+  </defs>
+  <!-- Near ridge with a valley in the middle where the sun sets; shoreline at y=704. -->
+  <path fill="url(#near)" d="M0 628 L104 556 L196 616 L292 548 L380 630 L450 684 L486 704 L538 704 L574 684 L644 628 L734 548 L828 614 L920 560 L1024 616 L1024 704 L0 704 Z"/>
+</svg>

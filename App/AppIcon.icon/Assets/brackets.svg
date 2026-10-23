@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 16:9 crop frame around the scene: 760 x 427.5, centered at (512, 500). -->
+  <g fill="none" stroke="#FFF8EE" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 396 L132 286 L242 286"/>
+    <path d="M782 286 L892 286 L892 396"/>
+    <path d="M892 604 L892 714 L782 714"/>
+    <path d="M242 714 L132 714 L132 604"/>
+  </g>
+</svg>

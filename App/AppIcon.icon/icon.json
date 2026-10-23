@@ -1,0 +1,110 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.10588,0.09412,0.25098,1.00000",
+      "srgb:1.00000,0.76863,0.54118,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 1
+      }
+    }
+  },
+  "groups": [
+    {
+      "name": "Crop frame & placard",
+      "layers": [
+        {
+          "image-name": "placard.png",
+          "name": "placard",
+          "glass": true
+        },
+        {
+          "image-name": "brackets.svg",
+          "name": "brackets",
+          "glass": true,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,0.95000,0.88000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.55
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.3
+      }
+    },
+    {
+      "name": "Near ridge & lake",
+      "layers": [
+        {
+          "image-name": "mountains-front.svg",
+          "name": "near ridge",
+          "glass": false
+        },
+        {
+          "image-name": "lake.svg",
+          "name": "lake",
+          "glass": false
+        }
+      ],
+      "specular": false,
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.4
+      }
+    },
+    {
+      "name": "Sun",
+      "layers": [
+        {
+          "image-name": "sun.svg",
+          "name": "sun",
+          "glass": true
+        }
+      ],
+      "specular": true,
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.6
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.15
+      }
+    },
+    {
+      "name": "Far ridge & sky",
+      "layers": [
+        {
+          "image-name": "mountains-back.svg",
+          "name": "far ridge",
+          "glass": false
+        },
+        {
+          "image-name": "sky.svg",
+          "name": "sky",
+          "glass": false
+        }
+      ],
+      "specular": false
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

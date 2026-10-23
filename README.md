@@ -1,5 +1,7 @@
 # Inframy
 
+<img src="docs/images/app-icon-Default.png" width="128" alt="Inframy icon: a dusk landscape inside 16:9 crop brackets, the sun carrying an upload arrow">
+
 *Photos that will live in inframy.*
 
 A Mac app for putting your own photos on a Samsung **The Frame** TV, without SmartThings.
