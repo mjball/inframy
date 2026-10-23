@@ -19,3 +19,6 @@ tools/probe-output/
 tools/.tv-token
 *.token
 tv.json
+
+# Release build for trying the app
+build/

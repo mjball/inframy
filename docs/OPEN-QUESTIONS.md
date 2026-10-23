@@ -3,6 +3,28 @@
 Written while Matt was away (2026-10-23). Each has the answer I assumed so work could continue.
 Change any of these and I'll adjust.
 
+## Start here
+
+**All four phases are built and merged** (PRs #4 to #7). The app is at `build/Inframy.app` (Release build; right-click →
+Open the first time, since it's not notarized). 65 tests pass. **Nothing has been tried on the real TV since this
+morning:** it went to sleep around 11:00, and I didn't wake it or change anything on it.
+
+Suggested first run, about 10 minutes, with the TV on:
+1. Open `build/Inframy.app` and click **Allow** when macOS asks about local network access.
+2. Sidebar → On the TV: you should see MY_F0003 (the lake) marked "not from Inframy".
+3. Drag `~/Downloads/IMG_0296.heic` into the Library, choose the same crop in the editor, then On the TV →
+   **Find Matches** should propose linking it to MY_F0003.
+4. Drop in two or three more photos, crop them (Return = accept & next), press **Send**. Watch the queue.
+5. Look at the TV: full-screen, no mat, shuffling.
+6. Settings (⌘,): look over Rotation and Photos album sync. Both are off until you turn them on.
+
+What each phase added:
+- **Phase 2:** library, crop editor (manual crops only; the suggestion just places the frame), send queue, On the TV
+  grid with delete, and the Liquid Glass icon (docs/images/app-icon-*.png).
+- **Phase 3:** adoption of photos already on the TV (perceptual-hash matches you confirm), "Frame" album sync,
+  Settings window, per-photo sharpen.
+- **Phase 4:** pool rotation, menu bar item, shuffle upkeep every 15 min, open at login.
+
 ## Ground rules I followed
 
 - **No state changes on the real TV** while you were away (CLAUDE.md rule 3). Everything that writes to the TV
