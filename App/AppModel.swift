@@ -300,27 +300,38 @@ final class AppModel {
 
     /// Compares unknown TV items with library photos by perceptual hash and proposes links. Never links or
     /// deletes anything by itself.
-    func findAdoptionMatches() async {
-        isMatching = true
-        defer { isMatching = false }
-        var tvHashes: [String: UInt64] = [:]
-        for item in unknownTVItems {
+    /// Perceptual hashes of TV items' thumbnails (fetched from the TV if needed).
+    private func tvHashes(for items: [ContentItem]) async -> [String: UInt64] {
+        var hashes: [String: UInt64] = [:]
+        for item in items {
             if tvThumbnails[item.contentID] == nil {
                 if let data = try? await withClient({ try await $0.thumbnail(item.contentID) }), let image = NSImage(data: data) {
                     tvThumbnails[item.contentID] = image
                 }
             }
             if let cg = tvThumbnails[item.contentID]?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                tvHashes[item.contentID] = PerceptualHash.dHash(cg)
+                hashes[item.contentID] = PerceptualHash.dHash(cg)
             }
         }
-        let candidates = photos.filter { $0.tvContentID == nil && $0.renderSpec != nil }
+        return hashes
+    }
+
+    /// Perceptual hashes of how library photos would look on the panel, computed off the main thread.
+    private func panelHashes(for candidates: [LibraryPhoto]) async -> [UUID: UInt64] {
         let store = self.store
-        let photoHashes = await Task.detached {
+        return await Task.detached {
             var hashes: [UUID: UInt64] = [:]
             for photo in candidates { hashes[photo.id] = PerceptualHash.panelHash(of: photo, store: store) }
             return hashes
         }.value
+    }
+
+    func findAdoptionMatches() async {
+        isMatching = true
+        defer { isMatching = false }
+        let tvHashes = await tvHashes(for: unknownTVItems)
+        let candidates = photos.filter { $0.tvContentID == nil && $0.renderSpec != nil }
+        let photoHashes = await panelHashes(for: candidates)
         adoptionProposals = Adoption.propose(tvHashes: tvHashes, photoHashes: photoHashes)
         if adoptionProposals.isEmpty {
             lastError = candidates.isEmpty
@@ -448,6 +459,48 @@ final class AppModel {
     }
 
     // MARK: Sending
+
+    /// Photos about to be sent that look like something already on the TV that isn't linked yet.
+    struct SendCheck: Identifiable {
+        let id = UUID()
+        let matches: [Adoption.Proposal]
+        let ids: [UUID]
+    }
+
+    var sendCheck: SendCheck?
+    var isCheckingSend = false
+
+    /// What Send buttons call: checks for duplicates of unlinked TV photos first (SPEC §6), then sends.
+    func requestSend(_ ids: [UUID]) async {
+        let unknown = unknownTVItems
+        let toSend = photos.filter { ids.contains($0.id) && $0.tvContentID == nil && $0.renderSpec != nil }
+        if !unknown.isEmpty, !toSend.isEmpty {
+            isCheckingSend = true
+            let matches = Adoption.propose(tvHashes: await tvHashes(for: unknown), photoHashes: await panelHashes(for: toSend))
+            isCheckingSend = false
+            if !matches.isEmpty {
+                sendCheck = SendCheck(matches: matches, ids: ids)
+                return
+            }
+        }
+        send(ids)
+    }
+
+    /// `linkMatches`: link the look-alikes instead of uploading them, then send the rest.
+    func resolveSendCheck(linkMatches: Bool) {
+        guard let check = sendCheck else { return }
+        sendCheck = nil
+        var ids = check.ids
+        if linkMatches {
+            for match in check.matches {
+                if let photo = photos.first(where: { $0.id == match.photoID }) {
+                    update(Adoption.link(photo, to: match.contentID))
+                }
+                ids.removeAll { $0 == match.photoID }
+            }
+        }
+        if !ids.isEmpty { send(ids) }
+    }
 
     func send(_ ids: [UUID]) {
         for id in ids where !jobs.contains(where: { $0.photoID == id && !$0.isFinished }) {

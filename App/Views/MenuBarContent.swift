@@ -18,7 +18,7 @@ struct MenuBarContent: View {
             NSApp.activate()
             openWindow(id: "main")
         }
-        Button("Send Ready Photos (\(model.readyToSend.count))") { model.send(model.readyToSend.map(\.id)) }
+        Button("Send Ready Photos (\(model.readyToSend.count))") { let ids = model.readyToSend.map(\.id); Task { await model.requestSend(ids) } }
             .disabled(model.readyToSend.isEmpty || !model.tvState.isConnected)
         Button("Rotate Now") { Task { await model.rotate(userInitiated: true) } }
             .disabled(!UserDefaults.standard.bool(forKey: Prefs.rotationEnabled) || model.isRotating)

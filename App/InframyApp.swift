@@ -38,7 +38,7 @@ struct InframyApp: App {
                     .keyboardShortcut("r")
                 Button("Wake TV") { model.wake() }
                 Divider()
-                Button("Send Ready Photos") { model.send(model.readyToSend.map(\.id)) }
+                Button("Send Ready Photos") { let ids = model.readyToSend.map(\.id); Task { await model.requestSend(ids) } }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(model.readyToSend.isEmpty)
             }

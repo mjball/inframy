@@ -57,6 +57,7 @@ struct RootView: View {
             Task { await importPicked(items) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .importPhotos)) { _ in showingFileImporter = true }
+        .sheet(item: $model.sendCheck) { check in SendCheckSheet(check: check).frame(width: 600) }
         .alert("Inframy", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
             Button("OK") { model.lastError = nil }
         } message: {
@@ -93,7 +94,8 @@ struct RootView: View {
             .popover(isPresented: $showingQueue, arrowEdge: .bottom) { SendQueueView().frame(width: 340) }
 
             Button {
-                model.send(model.readyToSend.map(\.id))
+                let ids = model.readyToSend.map(\.id)
+                Task { await model.requestSend(ids) }
                 showingQueue = true
             } label: {
                 Label(sendTitle, systemImage: "paperplane.fill")
@@ -211,5 +213,45 @@ struct TVStatusCard: View {
         case .searching(let message): return message
         case .unavailable(let message): return message
         }
+    }
+}
+
+/// Shown when photos about to be sent look like ones already on the TV that aren't linked.
+struct SendCheckSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let check: AppModel.SendCheck
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(check.matches.count == 1 ? "This photo may already be on the TV" : "These photos may already be on the TV")
+                .font(.title3.weight(.semibold))
+            Text("Linking skips the upload and marks the TV copy as Inframy's. Sending uploads another copy.")
+                .font(.callout).foregroundStyle(.secondary)
+            ForEach(check.matches, id: \.contentID) { match in
+                HStack(spacing: 14) {
+                    VStack(spacing: 4) {
+                        Group {
+                            if let image = model.tvThumbnails[match.contentID] {
+                                Image(nsImage: image).resizable().scaledToFill()
+                            } else { Rectangle().fill(.quaternary) }
+                        }
+                        .frame(width: 160, height: 90).clipShape(RoundedRectangle(cornerRadius: 5))
+                        Text("TV · \(match.contentID)").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "equal").foregroundStyle(.secondary)
+                    LibraryThumb(photoID: match.photoID)
+                }
+            }
+            HStack {
+                Button("Cancel") { model.sendCheck = nil; dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Send Anyway") { model.resolveSendCheck(linkMatches: false); dismiss() }
+                Button("Link Instead") { model.resolveSendCheck(linkMatches: true); dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
     }
 }
