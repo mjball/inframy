@@ -30,8 +30,11 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
 ## 2. Hardware and constraints
 
 - **TV:** Samsung The Frame 3.0, 55" QLED 4K, 2020 model (LS03T series), white bezel. Panel is 3840×2160.
-- **Art API version: unknown.** A 2019 Frame reports `0.97` and only accepts the legacy WebSocket-binary
-  upload; newer Frames use a socket ("d2d") upload. Phase 0 answers this for Matt's TV.
+- **Art API version: `2.03`** (verified Phase 0). That's the newer family: d2d socket transfers, not the 2019
+  `0.97` WebSocket-binary upload. Slideshow uses the **older** command names (`get/set_auto_rotation_status`).
+- **No internet, by design.** The TV is on the main LAN with a static IP (`192.168.5.86`) whose gateway is itself,
+  so it can't reach the internet (no ads, autoplaying channels, or firmware updates). Consequences: SmartThings
+  can't reach it, its clock may drift, and SSDP discovery stops working (Bonjour still does).
 - **Storage is small.** One 2020 LS03T owner reported ~259 MB free after installing a few apps. Plan for the
   TV holding tens of photos, not thousands (see pool rotation, §7).
 - **Reachability:** TV must be on, in Art Mode, or in standby with network standby enabled. Same subnet as the Mac.
@@ -39,7 +42,9 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
 
 ## 3. Target experience
 
-1. **Pair once.** App discovers the TV (SSDP) or takes an IP, Matt presses Allow on the TV, token goes in the Keychain.
+1. **Find the TV automatically.** Bonjour (`_samsungmsf._tcp`), confirmed via REST `FrameTVSupport`; Matt never
+   types an IP. Manual IP entry exists only as a fallback. On Matt's TV the art channel needed no token; if a
+   TV does issue one, it goes in the Keychain.
 2. **Import.** Drag photos from Finder or Photos into the window, use a Photos picker, or (Phase 3) designate a
    Photos album ("Frame") that Inframy keeps in sync.
 3. **Crop.** Every photo gets an automatic 16:9 crop. Matt reviews them in a fast crop editor (§4) and fixes any he
@@ -127,6 +132,11 @@ See `docs/PROTOCOL.md` for the wire format. Design:
   the TV says `secured`).
 - Typed API: `contentList(category:)`, `thumbnail(id:)`, `upload(jpeg:matte:)`, `delete(ids:)`, `changeMatte`,
   `setShuffle(category:interval:)`, `artMode`, `currentArtwork`, `deviceInfo`.
+- **Discovery (required):** Bonjour browse for `_samsungmsf._tcp` with `NWBrowser` (the TXT record's `se=` field
+  has the REST URL); SSDP M-SEARCH as a fallback. Then `GET http://<ip>:8001/api/v2/` and keep
+  `FrameTVSupport == "true"`. Needs `NSBonjourServices` (`_samsungmsf._tcp`) in Info.plist.
+  Remember the TV by its stable device `id` / MAC, not its IP; on connection failure, re-discover and update the IP.
+  If the TV is asleep, send Wake-on-LAN to the saved MAC, then re-discover.
 - Wake-on-LAN helper (needs the TV's MAC; get it from the REST device info at `http://<ip>:8001/api/v2/`).
 
 ## 9. macOS specifics
@@ -145,14 +155,16 @@ Each phase ends with something Matt can use or verify.
 
 Run `tools/probe.py` (read-only by default) against Matt's TV and record results in `docs/PROTOCOL.md`:
 
-- [ ] Pairing works; token saved.
-- [ ] Art API version reported.
-- [ ] Content list for the personal category: id format, fields (width, height, matte, date…).
-- [ ] Matte list; current slideshow/auto-rotation status (which command name works).
-- [ ] One thumbnail downloaded (which transport).
-- [ ] *With Matt's OK:* upload one test image with matte `none`; confirm it shows full-screen with no mat.
+- [x] TV found automatically (Bonjour; SSDP fails once the TV has no gateway).
+- [x] Connection works. Art channel issued no token, so nothing to save.
+- [x] Art API version reported: `2.03`.
+- [x] Content list works; fields captured. The TV has no personal photos yet, so the `MY-` id format is still unknown.
+- [x] Matte list; slideshow status via `get_auto_rotation_status` (`get_slideshow_status` → `-9`).
+- [x] One thumbnail downloaded (d2d socket).
+- [x] *With Matt's OK:* upload one test image with matte `none` → `MY_F0001` (d2d socket, plain TCP).
+- [x] *With Matt's OK:* display an upload and confirm it's full-screen with no mat (`MY_F0002`; no cropping).
 - [ ] *With Matt's OK:* set shuffle on the personal category; note which command and interval values are accepted.
-- [ ] *With Matt's OK:* delete the test image.
+- [ ] *With Matt's OK:* delete the test images (`MY_F0001`, `MY_F0002`).
 - [ ] Capture raw JSON for each exchange as test fixtures.
 
 ### Phase 1: CLI + core (InframyKit)

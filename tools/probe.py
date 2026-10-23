@@ -8,6 +8,8 @@ Setup (from the repo root):
     pip install "samsungtvws[async,cli]" pillow
 
 Usage:
+    python tools/probe.py                                         # discover the Frame (Bonjour/SSDP), then survey
+    python tools/probe.py --discover-only                         # just find Frame TVs on the network
     python tools/probe.py --host 192.168.1.50                     # read-only survey
     python tools/probe.py --host 192.168.1.50 --upload-test       # upload one test image, matte "none"
     python tools/probe.py --host 192.168.1.50 --show MY_F0001     # display a content id now
@@ -42,7 +44,8 @@ TOKEN_FILE = TOOLS_DIR / ".tv-token"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Probe a Samsung Frame TV's art-mode API.")
-    parser.add_argument("--host", required=True, help="TV IP address")
+    parser.add_argument("--host", help="TV IP address (default: discover via Bonjour/SSDP)")
+    parser.add_argument("--discover-only", action="store_true", help="list Frame TVs found on the network and exit")
     parser.add_argument("--port", type=int, default=8002)
     parser.add_argument("--timeout", type=float, default=15)
     parser.add_argument("--debug", action="store_true", help="log raw websocket traffic")
@@ -61,6 +64,17 @@ def main() -> int:
         print('samsungtvws is not installed. Run: pip install "samsungtvws[async,cli]" pillow', file=sys.stderr)
         return 1
 
+    if args.discover_only or not args.host:
+        frames = discover_frames()
+        for f in frames:
+            print(f"Found Frame TV: {f['ip']}  name={f['name']!r}  model={f['model']}  id={f['id']}  wifiMac={f['mac']}")
+        if args.discover_only:
+            return 0 if frames else 1
+        if len(frames) != 1:
+            print(f"Expected exactly one Frame TV, found {len(frames)}. Pass --host.", file=sys.stderr)
+            return 1
+        args.host = frames[0]["ip"]
+
     out_dir = TOOLS_DIR / "probe-output" / dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
     log = Log(out_dir)
@@ -78,7 +92,7 @@ def main() -> int:
     log.call("art.get_artmode", lambda: art.get_artmode())
     log.call("art.get_current", lambda: art.get_current())
     personal = log.call(f"art.available({PERSONAL_CATEGORY})", lambda: art.available(PERSONAL_CATEGORY))
-    log.call("art.get_matte_list(include_colour=True)", lambda: art.get_matte_list(include_colour=True))
+    log.call("art.get_matte_list", lambda: art.get_matte_list())
     log.call("art.get_slideshow_status (newer firmware)", lambda: art.get_slideshow_status())
     log.call("art.get_auto_rotation_status (older firmware)", lambda: art.get_auto_rotation_status())
     log.call("art.get_artmode_settings", lambda: art.get_artmode_settings())
@@ -99,8 +113,11 @@ def main() -> int:
     # ---- Changes (opt-in) -------------------------------------------------------------------------
     if args.upload_test and confirm("Upload one test image to the TV (matte none)?", args.yes):
         jpeg = make_test_jpeg()
+        saved = out_dir / "test-upload.jpg"
+        saved.write_bytes(jpeg)  # keep exactly what we sent, for comparing with what the TV shows
         cid = log.call("art.upload(test, matte=none)", lambda: upload(art, jpeg))
         if cid:
+            saved.rename(out_dir / f"test-upload-{cid}.jpg")
             print(f"Uploaded test image as {cid}. Use --show {cid} to display it, --delete {cid} to remove it.")
             log.call(f"art.available({PERSONAL_CATEGORY}) after upload", lambda: art.available(PERSONAL_CATEGORY))
 
@@ -123,6 +140,84 @@ def main() -> int:
     return 0
 
 
+SSDP_TARGETS = (
+    "urn:samsung.com:device:RemoteControlReceiver:1",
+    "urn:dial-multiscreen-org:service:dial:1",
+)
+
+
+def discover_frames() -> list[dict]:
+    """Find Frame TVs: Bonjour (_samsungmsf._tcp) first, SSDP as a fallback; keep FrameTVSupport=true.
+
+    Matt's TV stops answering SSDP when its gateway is set to its own IP (no-internet setup),
+    but keeps advertising over Bonjour. Read-only.
+    """
+    ips = bonjour_samsung_ips() or ssdp_samsung_ips()
+    return [f for ip in sorted(ips) if (f := frame_info(ip))]
+
+
+def bonjour_samsung_ips(wait: float = 3.0) -> set[str]:
+    """Browse _samsungmsf._tcp with macOS dns-sd and read the REST URL from each TXT record (se=...)."""
+    import re
+    import subprocess
+
+    def run(args):
+        try:
+            return subprocess.run(args, capture_output=True, text=True, timeout=wait).stdout
+        except subprocess.TimeoutExpired as exc:  # dns-sd never exits on its own
+            return exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        except FileNotFoundError:
+            return ""
+
+    names = set(re.findall(r"_samsungmsf\._tcp\.\s+(\S.*?)\s*$", run(["dns-sd", "-B", "_samsungmsf._tcp", "local."]), re.M))
+    ips = set()
+    for name in names:
+        txt = run(["dns-sd", "-L", name, "_samsungmsf._tcp", "local."])
+        ips.update(re.findall(r"se=https?://([\d.]+):", txt))
+    return ips
+
+
+def ssdp_samsung_ips(wait: float = 4.0) -> set[str]:
+    import socket
+    import time
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+    sock.settimeout(0.5)
+    for st in SSDP_TARGETS:
+        msg = (f"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\n"
+               f"MX: 2\r\nST: {st}\r\n\r\n").encode()
+        sock.sendto(msg, ("239.255.255.250", 1900))
+    responders: set[str] = set()
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            data, (ip, _) = sock.recvfrom(4096)
+        except socket.timeout:
+            continue
+        if b"samsung" in data.lower() or b"dial" in data.lower():
+            responders.add(ip)
+    sock.close()
+    return responders
+
+
+def frame_info(ip: str) -> dict | None:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{ip}:8001/api/v2/", timeout=3) as resp:
+            info = json.load(resp)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {ip}: REST info failed: {exc!r}")
+        return None
+    dev = info.get("device", {})
+    if str(dev.get("FrameTVSupport", "")).lower() != "true":
+        print(f"  {ip}: Samsung device, not a Frame ({dev.get('modelName')})")
+        return None
+    return {"ip": ip, "name": dev.get("name"), "model": dev.get("modelName"),
+            "id": dev.get("id") or info.get("id"), "mac": dev.get("wifiMac")}
+
+
 def upload(art, jpeg: bytes):
     try:
         return art.upload(jpeg, file_type="JPEG", matte="none", portrait_matte="none")
@@ -140,7 +235,12 @@ def make_test_jpeg() -> bytes:
     for y in range(h):  # simple vertical gradient so banding/compression is visible
         shade = int(40 + 160 * y / h)
         draw.line([(0, y), (w, y)], fill=(shade, shade // 2 + 40, 200 - shade // 2))
-    draw.rectangle([0, 0, w - 1, h - 1], outline=(255, 255, 255), width=12)  # edges: is anything cropped?
+    # Cropping check: a colored triangle in each corner. Don't draw a border: on the TV it looks exactly like a mat.
+    s = 200
+    draw.polygon([(0, 0), (s, 0), (0, s)], fill=(230, 40, 40))                  # top-left: red
+    draw.polygon([(w - 1, 0), (w - 1 - s, 0), (w - 1, s)], fill=(40, 200, 60))  # top-right: green
+    draw.polygon([(0, h - 1), (s, h - 1), (0, h - 1 - s)], fill=(240, 210, 40))  # bottom-left: yellow
+    draw.polygon([(w - 1, h - 1), (w - 1 - s, h - 1), (w - 1, h - 1 - s)], fill=(40, 200, 220))  # bottom-right: cyan
     stamp = f"Inframy probe {dt.datetime.now():%Y-%m-%d %H:%M}"
     try:
         draw.text((w // 2, h // 2), stamp, fill=(255, 255, 255), anchor="mm", font_size=160)

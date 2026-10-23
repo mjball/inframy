@@ -44,6 +44,9 @@ Notes:
 2. On error, send `{"request": "get_api_version"}`.
 3. Response field: `version`. A 2019 Frame reports `"0.97"`.
 
+✅ Matt's TV: `api_version` → error `-9`; `get_api_version` → `"2.03"`. Skip straight to `get_api_version` for this TV,
+but keep the fallback order for robustness.
+
 ## Requests (newer naming unless noted)
 
 | Purpose | Request | Key params / response |
@@ -99,4 +102,160 @@ read a 4-byte big-endian header length, a JSON header (`fileLength`, `fileID`, `
 
 ## Verified on Matt's TV
 
-_Nothing yet. Phase 0 fills this in._
+Probe run 2026-10-22 with samsungtvws 3.0.6, read-only calls only. Raw traffic from `tools/probe.py --debug`.
+
+### The TV
+
+| | |
+|---|---|
+| Model | `QN55LS03TAFXZA` (REST `model`: `20_NIKEM_FRAME`), Tizen, `resolution` `3840x2160` |
+| REST API `version` | `2.0.25` (`remote: "1.0"`), `TokenAuthSupport: "true"`, `firmwareVersion: "Unknown"` |
+| **Art API version** | **`2.03`** → newer protocol family (d2d socket transfers), not the 0.97 WebSocket-binary path |
+| Network | Wi-Fi, static `192.168.5.86/22` (main eero network "Mordor"), gateway set to its own IP so it has **no internet**. eero reservation on the same IP. |
+| Wi-Fi MAC (for Wake-on-LAN) | `5C:C1:D7:62:D2:12` |
+| Device id | `uuid:94b159b8-52d6-4f07-b584-eae44c5817c6` (stable; use it to recognise the TV, not the IP) |
+| `get_device_info` | `tv_flash_size: "8"`, `support_myshelf: "FALSE"`, `support_motion_sensor: "TRUE"`, `support_brightness_sensor: "TRUE"`, `support_color_tone: "TRUE"`, `current_rotation_status: 1` |
+
+### Discovery ✅
+
+- **Bonjour works** (use this first): service `_samsungmsf._tcp`, instance name = device id, port 8001. TXT record:
+  `id=uuid:94b1… remote=1.0 ve=2.0.25 md=Samsung Smart TV fn=[TV] The Frame se=http://192.168.5.86:8001/api/v2/`.
+- **SSDP stopped working** once the TV's gateway was set to its own IP: it answered M-SEARCH
+  (`urn:samsung.com:device:RemoteControlReceiver:1` / DIAL) while on DHCP, but not after. Keep SSDP only as a fallback.
+- Confirm with `GET http://<ip>:8001/api/v2/` → `device.FrameTVSupport == "true"`.
+
+### Connection and pairing ✅ (surprise)
+
+- `wss://<ip>:8002/api/v2/channels/com.samsung.art-app?name=SW5mcmFteQ%3D%3D` (base64 "Inframy"), **no token**.
+- The TV answered with `ms.channel.connect` **without a `token` field**, then `ms.channel.ready`, and served every
+  art request. No token was issued, so nothing was saved. Whether an Allow prompt appeared on the TV: _ask Matt_.
+  The art channel on this TV apparently doesn't require pairing; the remote-control channel probably still does.
+
+```json
+{"event":"ms.channel.connect","data":{"id":"fc8f6b80-…","clients":[
+  {"id":"c9136dd5-…","isHost":true,"deviceName":"Smart Device","attributes":{"name":null},"connectTime":1792711830975},
+  {"id":"fc8f6b80-…","isHost":false,"deviceName":"SW5mcmFteQ==","attributes":{"name":"SW5mcmFteQ=="},"connectTime":1792713899319}]}}
+{"event":"ms.channel.ready","data":{}}
+```
+
+### Envelope ✅
+
+Request and response shapes match the section above. Example (`get_api_version`):
+
+```json
+→ {"method":"ms.channel.emit","params":{"event":"art_app_request","to":"host",
+   "data":"{\"request\": \"get_api_version\", \"id\": \"6fe5c223-…\", \"request_id\": \"6fe5c223-…\"}"}}
+← {"event":"d2d_service_message","from":"c9136dd5-…",
+   "data":"{\n  \"id\": \"6fe5c223-…\",\n  \"event\": \"api_version\",\n  \"version\": \"2.03\",\n  \"target_client_id\": \"fc8f6b80-…\"\n}"}
+```
+
+Errors: sub-event `error` with `error_code` as a **string** and the original request echoed in `request_data`.
+**`-9` = request name not supported on this TV.**
+
+```json
+{"id":"9d78c679-…","event":"error","error_code":"-9",
+ "request_data":"{\"request\": \"api_version\", …}","target_client_id":"fc8f6b80-…"}
+```
+
+### Requests
+
+| Request | Result on Matt's TV |
+|---|---|
+| `get_api_version` | ✅ `"2.03"` |
+| `api_version` | ❌ `-9` |
+| `get_device_info` | ✅ (fields above) |
+| `get_artmode_status` | ✅ `"off"` (TV was showing regular TV) |
+| `get_current_artwork` | ✅ `{"content_id":"SAM-F0103","matte_id":"none","portrait_matte_id":"flexible_polar"}` |
+| `get_content_list` | ✅ Whole TV holds **1 item**; `MY-C0002` is empty. See below. |
+| `get_matte_list` | ✅ `matte_type_list`: none, myshelf, modernthin, modern, modernwide, flexible, shadowbox, panoramic, triptych, mix, squares. `matte_color_list`: black, neutral, antique, warm, polar, sand, seafoam, sage, burgandy (sic), navy, apricot, byzantine, lavender, redorange, skyblue, turquoise (each with R/G/B). |
+| **`get_auto_rotation_status`** | ✅ **works** (older slideshow naming, as expected for 2020) |
+| `get_slideshow_status` | ❌ `-9` (newer naming not supported) |
+| `get_artmode_settings` | ❌ `-9` |
+| `get_photo_filter_list` | ✅ None, Aqua, ArtDeco, Ink, Wash, Pastel, Feuve |
+| `get_thumbnail` (d2d socket) | ✅ `SAM-F0103` → 33,041-byte JPEG |
+
+Slideshow status (raw):
+
+```json
+{"id":"6ba9fc7e-…","event":"auto_rotation_status","value":"off","category_id":"","sub_category_id":"",
+ "current_content_id":"","type":"","content_list":"","target_client_id":"fc8f6b80-…"}
+```
+
+Content list (everything on the TV):
+
+```json
+[{"content_id":"SAM-F0103","category_id":"M0002","matte_id":"none","portrait_matte_id":"shadowbox_polar",
+  "width":3840,"height":2160,"image_date":"","content_type":"preinstall"}]
+```
+
+Note the category id is `M0002` here, not `MY-C…`. No personal (`MY-…`) content exists yet, so the uploaded-id
+format is still unknown.
+
+### Upload ✅ (d2d socket, matte none)
+
+2026-10-22, with Matt's OK: one 3840×2160 test JPEG (269,878 bytes) → **`MY_F0001`** (underscore form).
+
+```json
+→ data: {"request":"send_image","id":"1759868b-…","request_id":"1759868b-…","file_type":"jpg","file_size":269878,
+         "image_date":"2026:10:22 20:08:24","matte_id":"none","portrait_matte_id":"none",
+         "conn_info":{"d2d_mode":"socket","connection_id":4134151049,"id":"1759868b-…"}}
+← {"id":"1759868b-…","event":"ready_to_use",
+   "conn_info":"{\"contentInfo\":\"{…\\\"id\\\":\\\"1759868b-…\\\"}\",\"event\":\"get_d2d_connection\",
+                \"ip\":\"192.168.5.86\",\"port\":\"58006\",\"key\":\"<redacted>\",\"stat\":\"ok\",\"mode\":\"socket\"}"}
+   (then: plain TCP to ip:port, 4-byte BE header length + header JSON with secKey=key + JPEG bytes)
+← {"id":"1759868b-…","event":"image_added","content_id":"MY_F0001","matte_id":"none","portrait_matte_id":"none",
+   "width":"3840","height":"2160","target_client_id":"…"}
+← {"event":"image_added","content_id":"MY_F0001","category_id":"MY-C0002","matte_id":"none",
+   "portrait_matte_id":"none","width":"3840","height":"2160"}          (second copy: broadcast, no id)
+```
+
+Notes:
+- `ready_to_use.conn_info` is a JSON string containing **another** JSON string (`contentInfo`). `port` is a string.
+  There is **no `secured` field**, so the socket is plain TCP on this TV.
+- `image_added` arrives twice: once correlated by `id`, once as a broadcast with `category_id`. Dedupe by `content_id`.
+- In `image_added`, `width`/`height` are **strings**; in `get_content_list` they're **numbers**.
+- The new item in `get_content_list`:
+  `{"content_id":"MY_F0001","category_id":"MY-C0002","matte_id":"none","portrait_matte_id":"none","width":3840,
+  "height":2160,"image_date":"2026:10:22 20:08:24","content_type":"mobile"}`
+- Uploading doesn't display the image or change art mode (`get_current_artwork` unchanged afterwards).
+
+### Select / display ✅
+
+2026-10-22, with Matt's OK. TV was in regular TV mode (`artmode_status` `off`).
+
+```json
+→ data: {"request":"select_image","category_id":"MY-C0002","content_id":"MY_F0001","show":true,"id":"e6620c46-…","request_id":"e6620c46-…"}
+← {"id":"e6620c46-…","event":"image_selected","content_id":"MY_F0001","category_id":"MY-C0002","sub_category_id":null,
+   "matte_id":"none","portrait_matte_id":"none","is_shown":"Yes","target_client_id":"…"}
+← {"event":"image_selected","content_id":"MY_F0001","matte_id":"none","portrait_matte_id":"none","is_shown":"Yes"}   (broadcast copy)
+```
+
+- With `show: true`, the TV **switched itself into art mode** (`get_artmode_status` → `on` 3 s later).
+- `get_current_artwork` → `MY_F0001`, `matte_id` `none`.
+- Like `image_added`, `image_selected` arrives twice (correlated + broadcast).
+- Visual check: the image showed with a thin off-white border that looked like a mat. **That border was in the
+  test image itself** (a 12 px white outline the probe drew as a cropping check, ≈4 mm on a 55" panel). The TV's
+  API and its own menu both report **no mat**, which is consistent with matte `none` working on upload.
+  The probe now uses colored corner triangles instead.
+- ✅ **Verified 2026-10-23:** border-free test image uploaded with matte `none` → `MY_F0002`, displayed with
+  `select_image` (`show: true`). Matt confirmed: **full-screen, no mat, all four corner triangles visible** (no
+  cropping). So an exact 3840×2160 JPEG uploaded with `matte_id: "none"` needs no follow-up `change_matte`.
+
+### Matte changes
+
+| Request | Result |
+|---|---|
+| `change_matte` `{content_id, matte_id:"none", portrait_matte_id:"none"}` | ❌ error **`-7`**: this TV rejects `portrait_matte_id` here. |
+| `change_matte` `{content_id, matte_id:"none"}` | ✅ `{"event":"matte_changed","matte_id":"none"}` |
+| `change_matte` `{content_id, matte_id:"modern_polar"}` | ✅ `matte_changed` (`type_color` format accepted) |
+
+`get_current_artwork` and `get_content_list` reflect the stored matte. The TV's menu (remote → Mat) agreed ("No mat").
+
+Other event seen while listening: `{"event":"go_to_standby"}` (broadcast, `d2d_service_message`) when the TV slept.
+
+### Still to verify (needs Matt's OK, changes the TV)
+
+- Delete `MY_F0001` and `MY_F0002` (test images) via `delete_image_list`.
+- `set_auto_rotation_status`: accepted `value` intervals and `type` (`shuffleslideshow`), category `MY-C0002`.
+- `select_image`, `delete_image_list` on the test image.
+- Whether a `token` ever appears (e.g. if the TV's Access Notification setting changes).
