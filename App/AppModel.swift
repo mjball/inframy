@@ -41,9 +41,6 @@ final class AppModel {
     var editingPhotoID: UUID?
     var lastError: String?
     var isRefreshingTV = false
-    /// TV items that look like library photos, waiting for Matt to confirm (SPEC §6 adoption).
-    var adoptionProposals: [Adoption.Proposal] = []
-    var isMatching = false
     var isSyncingAlbum = false
     var isRotating = false
     var lastRotation: Date? = UserDefaults.standard.object(forKey: Prefs.lastRotation) as? Date
@@ -195,6 +192,7 @@ final class AppModel {
             for photo in result.linked { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
             photos.append(contentsOf: result.imported)
             if !result.imported.isEmpty || !result.linked.isEmpty { saveLibrary() }
+            if !result.imported.isEmpty { await recognizeTVPhotos() }
             if userInitiated || !result.imported.isEmpty || !result.failures.isEmpty {
                 var text = "\(result.imported.count) new photo\(result.imported.count == 1 ? "" : "s") from \"\(albumName)\"."
                 if !result.failures.isEmpty { text += " Couldn't export: \(result.failures.joined(separator: ", "))." }
@@ -281,6 +279,7 @@ final class AppModel {
             }
             if changed { saveLibrary() }
             await loadTVThumbnails()
+            await recognizeTVPhotos()
         } catch ArtError.timedOut {
             // Seen on Matt's TV: the connection is up but the art service stops answering. Switching the TV to TV
             // mode and back to Art mode with the remote restarts it.
@@ -303,53 +302,48 @@ final class AppModel {
 
     /// Compares unknown TV items with library photos by perceptual hash and proposes links. Never links or
     /// deletes anything by itself.
-    /// Perceptual hashes of TV items' thumbnails (fetched from the TV if needed).
-    private func tvHashes(for items: [ContentItem]) async -> [String: UInt64] {
-        var hashes: [String: UInt64] = [:]
-        for item in items {
-            if tvThumbnails[item.contentID] == nil {
-                if let data = try? await withClient({ try await $0.thumbnail(item.contentID) }), let image = NSImage(data: data) {
-                    tvThumbnails[item.contentID] = image
-                }
+    /// Recognizes library photos that are already on the TV (SPEC §6): compares unmatched TV items with photos not
+    /// yet on the TV, as sub-images, and records matches with the crop recovered from the TV copy. Only changes
+    /// Inframy's records, never the TV. "Not the same photo" undoes a match.
+    func recognizeTVPhotos() async {
+        let unknown = unknownTVItems
+        let candidates = photos.filter { $0.tvContentID == nil && $0.choice != .skip }
+        guard !unknown.isEmpty, !candidates.isEmpty, tvState.isConnected else { return }
+        var tvImages: [String: CGImage] = [:]
+        for item in unknown {
+            if tvThumbnails[item.contentID] == nil,
+               let data = try? await withClient({ try await $0.thumbnail(item.contentID) }), let image = NSImage(data: data) {
+                tvThumbnails[item.contentID] = image
             }
             if let cg = tvThumbnails[item.contentID]?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                hashes[item.contentID] = PerceptualHash.dHash(cg)
+                tvImages[item.contentID] = cg
             }
         }
-        return hashes
-    }
-
-    /// Perceptual hashes of how library photos would look on the panel, computed off the main thread.
-    private func panelHashes(for candidates: [LibraryPhoto]) async -> [UUID: UInt64] {
         let store = self.store
-        return await Task.detached {
-            var hashes: [UUID: UInt64] = [:]
-            for photo in candidates { hashes[photo.id] = PerceptualHash.panelHash(of: photo, store: store) }
-            return hashes
+        let matches = await Task.detached { () -> [Recognition.Match] in
+            var originals: [UUID: CGImage] = [:]
+            for photo in candidates {
+                if let url = store.url(for: photo), let preview = LibraryStore.thumbnail(of: url, maxPixel: 512) {
+                    originals[photo.id] = preview
+                }
+            }
+            return Recognition.match(photos: candidates, originals: originals, tvImages: tvImages)
         }.value
-    }
-
-    func findAdoptionMatches() async {
-        isMatching = true
-        defer { isMatching = false }
-        let tvHashes = await tvHashes(for: unknownTVItems)
-        let candidates = photos.filter { $0.tvContentID == nil && $0.renderSpec != nil }
-        let photoHashes = await panelHashes(for: candidates)
-        adoptionProposals = Adoption.propose(tvHashes: tvHashes, photoHashes: photoHashes)
-        if adoptionProposals.isEmpty {
-            lastError = candidates.isEmpty
-                ? "No library photos with a chosen crop to compare against. Import and crop the originals first."
-                : "No matches between the TV and your library."
+        guard !matches.isEmpty else { return }
+        for match in matches {
+            if let i = photos.firstIndex(where: { $0.id == match.photoID }) {
+                photos[i] = Recognition.apply(match, to: photos[i])
+            }
         }
+        saveLibrary()
     }
 
-    func acceptAdoption(_ proposal: Adoption.Proposal) {
-        guard let photo = photos.first(where: { $0.id == proposal.photoID }) else { return }
-        update(Adoption.link(photo, to: proposal.contentID))
-        adoptionProposals.removeAll { $0 == proposal }
+    /// "Not the same photo": undo a recognition, and never pair these two again.
+    func markNotSame(_ id: UUID) {
+        guard let i = photos.firstIndex(where: { $0.id == id }) else { return }
+        photos[i] = Recognition.reject(photos[i])
+        saveLibrary()
     }
-
-    func dismissAdoption(_ proposal: Adoption.Proposal) { adoptionProposals.removeAll { $0 == proposal } }
 
     /// The library photo that was uploaded as this TV item, if any.
     func photo(forTVItem id: String) -> LibraryPhoto? { photos.first { $0.tvContentID == id } }
@@ -418,8 +412,11 @@ final class AppModel {
         if !failures.isEmpty { notes.append("couldn't read \(failures.joined(separator: ", "))") }
         if !notes.isEmpty { lastError = "Imported \(added.count). " + notes.joined(separator: "; ") + "." }
         section = .library
-        // Go straight to cropping the first new photo that needs a decision.
-        if editingPhotoID == nil, let first = added.first(where: { $0.status == .needsCrop }) {
+        // Photos already on the TV are recognized (with their crop) before anything asks for a crop.
+        if !added.isEmpty { await recognizeTVPhotos() }
+        // Go straight to cropping the first new photo that still needs a decision.
+        let addedIDs = Set(added.map(\.id))
+        if editingPhotoID == nil, let first = photos.first(where: { addedIDs.contains($0.id) && $0.status == .needsCrop }) {
             editingPhotoID = first.id
         }
     }
@@ -466,48 +463,6 @@ final class AppModel {
     }
 
     // MARK: Sending
-
-    /// Photos about to be sent that look like something already on the TV that isn't linked yet.
-    struct SendCheck: Identifiable {
-        let id = UUID()
-        let matches: [Adoption.Proposal]
-        let ids: [UUID]
-    }
-
-    var sendCheck: SendCheck?
-    var isCheckingSend = false
-
-    /// What Send buttons call: checks for duplicates of unlinked TV photos first (SPEC §6), then sends.
-    func requestSend(_ ids: [UUID]) async {
-        let unknown = unknownTVItems
-        let toSend = photos.filter { ids.contains($0.id) && $0.tvContentID == nil && $0.renderSpec != nil }
-        if !unknown.isEmpty, !toSend.isEmpty {
-            isCheckingSend = true
-            let matches = Adoption.propose(tvHashes: await tvHashes(for: unknown), photoHashes: await panelHashes(for: toSend))
-            isCheckingSend = false
-            if !matches.isEmpty {
-                sendCheck = SendCheck(matches: matches, ids: ids)
-                return
-            }
-        }
-        send(ids)
-    }
-
-    /// `linkMatches`: link the look-alikes instead of uploading them, then send the rest.
-    func resolveSendCheck(linkMatches: Bool) {
-        guard let check = sendCheck else { return }
-        sendCheck = nil
-        var ids = check.ids
-        if linkMatches {
-            for match in check.matches {
-                if let photo = photos.first(where: { $0.id == match.photoID }) {
-                    update(Adoption.link(photo, to: match.contentID))
-                }
-                ids.removeAll { $0 == match.photoID }
-            }
-        }
-        if !ids.isEmpty { send(ids) }
-    }
 
     func send(_ ids: [UUID]) {
         for id in ids where !jobs.contains(where: { $0.photoID == id && !$0.isFinished }) {

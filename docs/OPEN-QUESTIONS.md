@@ -12,8 +12,8 @@ morning:** it went to sleep around 11:00, and I didn't wake it or change anythin
 Suggested first run, about 10 minutes, with the TV on:
 1. Open `build/Inframy.app` and click **Allow** when macOS asks about local network access.
 2. Sidebar → On the TV: you should see MY_F0003 (the lake) marked "not from Inframy".
-3. Drag `~/Downloads/IMG_0296.heic` into the Library, choose the same crop in the editor, then On the TV →
-   **Find Matches** should propose linking it to MY_F0003.
+3. Drag a photo that's already on the TV into the Library: it should show "Already on your TV" with its crop,
+   no cropping needed.
 4. Drop in two or three more photos, crop them (Return = accept & next), press **Send**. Watch the queue.
 5. Look at the TV: full-screen, no mat, shuffling.
 6. Settings (⌘,): look over Rotation and Photos album sync. Both are off until you turn them on.
@@ -53,8 +53,9 @@ What each phase added:
    often away from home*, so rotation runs opportunistically when the TV is reachable.
 8. **Album sync is off by default.** Turning it on (Settings → Photos) triggers the Photos permission prompt.
    *Assumed: album name "Frame", import only (photos removed from the album stay in the library and on the TV).*
-9. **Adoption threshold.** TV photos match library photos when their 64-bit dHash differs by ≤ 10 bits.
-   *Assumed: fine to start; tune once there's real data.* Linking requires your click per pair.
+9. **Recognizing photos already on the TV** is automatic: a photo counts as the same when the TV copy matches a
+   region of the original with correlation ≥ 0.9 (real match: 0.99; unrelated: ≤ 0.6). *Assumed: fine.* Undo with
+   right-click → Not the Same Photo.
 10. **Sharpening is per photo** (checkbox in the crop editor) rather than global, so you can compare on the TV.
 11. **Rotation is off by default** (Settings → Rotation). Defaults when you turn it on: keep 40 photos on the TV,
     rotate daily, swap 20% each time. *Assumed: you'd rather opt in before Inframy starts taking photos down.*

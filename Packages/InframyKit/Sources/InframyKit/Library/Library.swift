@@ -46,6 +46,11 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var lastOnTV: Date? = nil
     /// Never rotated off the TV.
     public var pinned: Bool? = nil
+    /// True when Inframy recognized this photo on the TV (rather than sending it). Its crop was recovered from the
+    /// TV copy. "Not the same photo" undoes this.
+    public var recognizedOnTV: Bool? = nil
+    /// TV items Matt said aren't this photo; never matched again.
+    public var notSameAs: [String]? = nil
 
     public var imageSize: CGSize { CGSize(width: pixelWidth, height: pixelHeight) }
     public var aspect: Double { Double(pixelWidth) / Double(max(pixelHeight, 1)) }

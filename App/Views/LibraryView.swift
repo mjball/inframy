@@ -81,6 +81,9 @@ struct LibraryView: View {
     @ViewBuilder
     private func menu(for photo: LibraryPhoto) -> some View {
         Button("Choose Crop…") { model.editingPhotoID = photo.id }
+        if photo.recognizedOnTV == true {
+            Button("Not the Same Photo") { model.markNotSame(photo.id) }
+        }
         Button("Fit with Blur Fill") { model.setChoice(.fitWithBlur, for: photo.id) }
         Button(photo.status == .skipped ? "Don't Skip" : "Skip") {
             model.setChoice(photo.status == .skipped ? .undecided : .skip, for: photo.id)
@@ -89,7 +92,7 @@ struct LibraryView: View {
         if photo.tvContentID != nil {
             Button(photo.pinned == true ? "Unpin (allow rotation)" : "Pin on TV (never rotate off)") { model.togglePin(photo.id) }
         }
-        Button("Send to TV") { Task { await model.requestSend([photo.id]) } }
+        Button("Send to TV") { model.send([photo.id]) }
             .disabled(photo.renderSpec == nil || !model.tvState.isConnected)
         if let url = model.url(for: photo) {
             Button("Show Original in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -142,7 +145,12 @@ struct PhotoTile: View {
             HStack {
                 Text(photo.displayName).font(.callout).lineLimit(1)
                 Spacer()
-                if let id = photo.tvContentID { Text(id).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                if photo.recognizedOnTV == true {
+                    Text("Already on your TV").font(.caption).foregroundStyle(.secondary)
+                        .help("Inframy recognized this photo on the TV (\(photo.tvContentID ?? "")) and used the crop it has there. Right-click → Not the Same Photo if that's wrong.")
+                } else if let id = photo.tvContentID {
+                    Text(id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
             }
         }
         .contentShape(Rectangle())
