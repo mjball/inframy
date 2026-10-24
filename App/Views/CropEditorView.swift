@@ -183,6 +183,7 @@ struct CropCanvas: View {
             }
         }
         .clipped()
+        .contentShape(Rectangle())
     }
 
     /// The largest 16:9 rect that fits with breathing room for the bezel.
@@ -210,12 +211,16 @@ struct CropCanvas: View {
                 .mask(alignment: .topLeading) {
                     Rectangle().frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
                 }
+                .allowsHitTesting(false)
         } else {
             // The whole photo at full quality, with a dark scrim over everything outside the frame, so you can
             // still see what you're leaving out. (A faded copy looked muddy and bled behind the toolbar.)
+            // The photo is bigger than the canvas; .clipped() hides the overflow but doesn't stop it catching clicks
+            // (it swallowed clicks on the header's Accept button). Input goes through MouseCatcher instead.
             picture
                 .frame(width: w, height: h)
                 .offset(x: origin.x, y: origin.y)
+                .allowsHitTesting(false)
             Scrim(cutout: frame)
                 .fill(Color.black.opacity(0.62), style: FillStyle(eoFill: true))
                 .allowsHitTesting(false)
