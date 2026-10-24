@@ -69,25 +69,6 @@
       }
     },
     {
-      "name": "Sun",
-      "layers": [
-        {
-          "image-name": "sun.svg",
-          "name": "sun",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "layer-color",
-        "opacity": 0.6
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.15
-      }
-    },
-    {
       "name": "Far ridge & sky",
       "layers": [
         {

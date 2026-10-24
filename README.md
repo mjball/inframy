@@ -1,6 +1,6 @@
 # Inframy
 
-<img src="docs/images/app-icon-Default.png" width="128" alt="Inframy icon: a dusk landscape inside 16:9 crop brackets, the sun carrying an upload arrow">
+<img src="docs/images/app-icon-Default.png" width="128" alt="Inframy icon: a dusk landscape inside 16:9 crop brackets">
 
 *Photos that will live in inframy.*
 
