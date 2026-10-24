@@ -451,10 +451,20 @@ struct SkippedTile: View {
             }
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 6))
-            Text(label).font(.caption).lineLimit(1)
+            // The file name exactly as Photos has it (search for it there), even when it's just an id.
+            Text(photo.name).font(.caption).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+            if let date = photo.created {
+                Text(date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
+            }
             Text("\(photo.width)×\(photo.height)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
         }
         .help(photo.name)
+        .contextMenu {
+            Button("Copy Name") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(photo.name, forType: .string)
+            }
+        }
         .task(id: photo.assetID) {
             if let cg = await PhotosAlbumSync.thumbnail(assetID: photo.assetID, maxPixel: 400) {
                 image = NSImage(cgImage: cg, size: .zero)
@@ -462,9 +472,4 @@ struct SkippedTile: View {
         }
     }
 
-    private var label: String {
-        if let name = photo.readableName { return name }
-        if let date = photo.created { return date.formatted(date: .abbreviated, time: .shortened) }
-        return "Untitled photo"
-    }
 }
