@@ -22,7 +22,7 @@ struct CropEditorView: View {
             header
             Divider()
             ZStack {
-                Color(nsColor: .underPageBackgroundColor)
+                Color(white: 0.12)
                 if let preview, let geometry {
                     CropCanvas(image: preview, geometry: Binding(get: { geometry }, set: { self.geometry = $0 }),
                                suggestion: suggestion, wallPreview: showWall)
@@ -174,7 +174,7 @@ struct CropCanvas: View {
                 }
             }
         }
-        .padding(wallPreview ? 0 : 0)
+        .clipped()
     }
 
     /// The largest 16:9 rect that fits with breathing room for the bezel.
@@ -194,20 +194,24 @@ struct CropCanvas: View {
         let h = frame.height / r.height
         let origin = CGPoint(x: frame.minX - r.x * w, y: frame.minY - r.y * h)
         let picture = Image(decorative: image, scale: 1).resizable().interpolation(.high)
-        // The rest of the photo stays visible but dimmed, so you can see what you're leaving out.
-        if !wallPreview {
+        if wallPreview {
+            // Only what will be on the wall.
             picture
                 .frame(width: w, height: h)
                 .offset(x: origin.x, y: origin.y)
-                .opacity(0.32)
-                .saturation(0.6)
+                .mask(alignment: .topLeading) {
+                    Rectangle().frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+                }
+        } else {
+            // The whole photo at full quality, with a dark scrim over everything outside the frame, so you can
+            // still see what you're leaving out. (A faded copy looked muddy and bled behind the toolbar.)
+            picture
+                .frame(width: w, height: h)
+                .offset(x: origin.x, y: origin.y)
+            Scrim(cutout: frame)
+                .fill(Color.black.opacity(0.62), style: FillStyle(eoFill: true))
+                .allowsHitTesting(false)
         }
-        picture
-            .frame(width: w, height: h)
-            .offset(x: origin.x, y: origin.y)
-            .mask(alignment: .topLeading) {
-                Rectangle().frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
-            }
         if let s = suggestion, !wallPreview {
             // The hint: a small ring where computer vision thinks the subject is.
             let p = CGPoint(x: origin.x + s.x * w, y: origin.y + s.y * h)
@@ -337,5 +341,17 @@ struct FilmstripCell: View {
         }
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(isCurrent ? Color.accentColor : .clear, lineWidth: 2.5).padding(-3))
         .task(id: photo.id) { image = await model.thumbnail(for: photo) }
+    }
+}
+
+/// Everything except `cutout` (even-odd fill): the crop editor's dimming outside the frame.
+struct Scrim: Shape {
+    let cutout: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.addRect(rect)
+        p.addRect(cutout)
+        return p
     }
 }
