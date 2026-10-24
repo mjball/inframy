@@ -42,8 +42,6 @@ final class AppModel {
     var lastError: String?
     var isRefreshingTV = false
     var isSyncingAlbum = false
-    var isRotating = false
-    var lastRotation: Date? = UserDefaults.standard.object(forKey: Prefs.lastRotation) as? Date
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored private let sender: PhotoSender
@@ -57,7 +55,9 @@ final class AppModel {
         set { UserDefaults.standard.set(newValue, forKey: Prefs.shuffleMinutes) }
     }
 
-    @ObservationIgnored private var backgroundTask: Task<Void, Never>?
+    @ObservationIgnored private var presenceTask: Task<Void, Never>?
+    @ObservationIgnored private var lastShuffleCheck = Date.distantPast
+    @ObservationIgnored private var lastDiscoveryAttempt = Date.distantPast
 
     init(store: LibraryStore = AppModel.defaultStore()) {
         Prefs.register()
@@ -88,40 +88,62 @@ final class AppModel {
         }
         await connect()
         await syncAlbum(userInitiated: false)
-        startBackgroundLoop()
+        startPresenceLoop()
     }
 
-    // MARK: Background (SPEC §7)
+    // MARK: TV presence (SPEC §7)
 
-    /// Every 15 minutes while Inframy runs: keep the slideshow on, and rotate the pool when it's due.
-    func startBackgroundLoop() {
-        guard backgroundTask == nil, ProcessInfo.processInfo.environment["INFRAMY_SNAPSHOT"] == nil else { return }
-        backgroundTask = Task { [weak self] in
+    /// The Frame leaves the network while its screen sleeps (motion sensor), so nothing runs on a timer. Inframy
+    /// watches for the TV to come and go (a cheap REST check every 20 s) and does what's pending when it appears:
+    /// queued sends and the slideshow check. Photos rotate via the TV's own shuffle, not Inframy.
+    func startPresenceLoop() {
+        guard presenceTask == nil, ProcessInfo.processInfo.environment["INFRAMY_SNAPSHOT"] == nil else { return }
+        presenceTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(15 * 60))
-                await self?.backgroundTick()
+                try? await Task.sleep(for: .seconds(20))
+                await self?.presenceTick()
             }
         }
     }
 
-    func backgroundTick() async {
-        let defaults = UserDefaults.standard
-        if defaults.bool(forKey: Prefs.rotationEnabled), rotationDue {
-            await rotate(userInitiated: false)
+    func presenceTick() async {
+        let host = SavedTV.load()?.host
+        let reachable: Bool
+        if let host { reachable = (try? await TVDeviceInfo.fetch(host: host, timeout: 3)) != nil } else { reachable = false }
+        switch (reachable, tvState.isConnected) {
+        case (true, false):
+            await connect()
+        case (false, true):
+            // It went to sleep. Drop the connection quietly; queued work waits for it to come back.
+            if let client { await client.connection.close() }
+            client = nil
+            tvState = .unavailable(asleepMessage)
+        case (true, true):
+            if Date().timeIntervalSince(lastShuffleCheck) > 15 * 60 { await reassertShuffle() }
+        case (false, false):
+            // Maybe its IP changed (or it was never paired): rediscover now and then.
+            if Date().timeIntervalSince(lastDiscoveryAttempt) > 180 {
+                lastDiscoveryAttempt = Date()
+                await connect()
+            }
         }
-        if defaults.bool(forKey: Prefs.keepShuffleOn) { await reassertShuffle() }
     }
 
-    var rotationDue: Bool {
-        let hours = UserDefaults.standard.integer(forKey: Prefs.rotationHours)
-        guard let last = lastRotation else { return true }
-        return Date().timeIntervalSince(last) >= Double(max(hours, 1)) * 3600
+    /// Runs whenever a connection is (re)established.
+    private func tvAppeared() async {
+        if jobs.contains(where: { $0.stage == .waiting }) { startQueue() }
+        await reassertShuffle()
+    }
+
+    var asleepMessage: String {
+        let name = SavedTV.load()?.name.replacingOccurrences(of: "[TV] ", with: "") ?? "The TV"
+        return "\(name) is asleep. It wakes when someone walks in; anything you send waits until then."
     }
 
     /// 2020 Frames sometimes stop the slideshow; turn it back on if My Photos has something to show.
     func reassertShuffle() async {
-        if !tvState.isConnected { await connect() }
-        guard tvState.isConnected else { return }
+        guard tvState.isConnected, UserDefaults.standard.bool(forKey: Prefs.keepShuffleOn) else { return }
+        lastShuffleCheck = Date()
         guard let status = try? await withClient({ try await $0.slideshowStatus() }) else { return }
         slideshow = status
         let personal = (try? await withClient { try await $0.contentList() }) ?? []
@@ -132,49 +154,6 @@ final class AppModel {
         } else if personal.count < 2, status.isOn, status.categoryID == ArtProtocol.personalCategory {
             await setShuffle(on: false)
         }
-    }
-
-    /// One rotation: upload the longest-absent photos, then take down the oldest Inframy photos (SPEC §7).
-    func rotate(userInitiated: Bool) async {
-        guard !isRotating else { return }
-        isRotating = true
-        defer { isRotating = false }
-        let defaults = UserDefaults.standard
-        if !tvState.isConnected { await connect() }
-        if !tvState.isConnected, defaults.bool(forKey: Prefs.wakeForRotation), let mac = SavedTV.load()?.wifiMAC {
-            try? WakeOnLAN.wake(mac: mac)
-            try? await Task.sleep(for: .seconds(20))
-            await connect()
-        }
-        guard tvState.isConnected, let client else {
-            if userInitiated { lastError = "Can't rotate: the TV isn't reachable." }
-            return
-        }
-        let pool = defaults.integer(forKey: Prefs.poolSize)
-        let plan = RotationPlanner.plan(photos: photos, poolSize: pool,
-                                        swapFraction: Double(defaults.integer(forKey: Prefs.swapPercent)) / 100)
-        if !plan.isEmpty {
-            let outcome = await Rotator(sender: sender).run(plan, photos: photos, client: client)
-            for p in outcome.updated { if let i = photos.firstIndex(where: { $0.id == p.id }) { photos[i] = p } }
-            saveLibrary()
-            if outcome.probablyFull {
-                // No storage query exists: treat a TV-side upload failure as "full" and shrink the pool to fit.
-                let onTV = photos.filter { $0.tvContentID != nil }.count
-                defaults.set(max(5, onTV), forKey: Prefs.poolSize)
-                lastError = "The TV seems to be full, so the pool is now \(max(5, onTV)) photos."
-            } else if !outcome.failures.isEmpty, userInitiated {
-                lastError = "Rotation finished with problems:\n" + outcome.failures.joined(separator: "\n")
-            }
-            await refreshTV()
-        }
-        lastRotation = Date()
-        defaults.set(lastRotation, forKey: Prefs.lastRotation)
-    }
-
-    func togglePin(_ id: UUID) {
-        guard let i = photos.firstIndex(where: { $0.id == id }) else { return }
-        photos[i].pinned = photos[i].pinned == true ? nil : true
-        saveLibrary()
     }
 
     // MARK: Photos album
@@ -225,10 +204,12 @@ final class AppModel {
             client = c
             tvState = .connected(info, apiVersion: version)
             await refreshTV()
+            await tvAppeared()
         } catch let failure as TVLocator.Failure {
             if case .pairedTVUnreachable(let tv) = failure {
                 // The Frame drops off the network when its motion sensor turns the screen off.
-                tvState = .unavailable("\(tv.name.replacingOccurrences(of: "[TV] ", with: "")) is asleep or off the network. It wakes when someone walks in (motion sensor), or try Wake TV.")
+                _ = tv
+                tvState = .unavailable(asleepMessage)
             } else {
                 tvState = .unavailable(String(describing: failure))
             }
@@ -356,8 +337,6 @@ final class AppModel {
             for i in photos.indices where photos[i].tvContentID.map(gone.contains) ?? false {
                 photos[i].tvContentID = nil
                 photos[i].uploadedRenderKey = nil
-                photos[i].onTVSince = nil
-                photos[i].lastOnTV = Date()
             }
             saveLibrary()
             if gone.count < ids.count { lastError = "The TV didn't confirm deleting \(ids.count - gone.count) item(s)." }
@@ -474,6 +453,11 @@ final class AppModel {
             guard let photo = photos.first(where: { $0.id == id }), photo.renderSpec != nil else { continue }
             jobs.append(SendJob(photoID: id, name: photo.displayName))
         }
+        // While the TV sleeps, jobs wait; they go out when it appears.
+        if tvState.isConnected { startQueue() }
+    }
+
+    private func startQueue() {
         guard !isSending else { return }
         Task { await runQueue() }
     }
@@ -484,10 +468,15 @@ final class AppModel {
         isSending = true
         defer { isSending = false }
         var sentAny = false
-        while let index = jobs.firstIndex(where: { $0.stage == .waiting }) {
+        while tvState.isConnected, let index = jobs.firstIndex(where: { $0.stage == .waiting }) {
             let job = jobs[index]
             guard let photo = photos.first(where: { $0.id == job.photoID }) else {
                 setStage(job.id, .failed("Removed from the library"))
+                continue
+            }
+            if photo.status == .onTV {
+                // Already there (e.g. recognized after an interrupted upload landed after all).
+                setStage(job.id, .done(photo.tvContentID ?? ""))
                 continue
             }
             do {
@@ -500,6 +489,23 @@ final class AppModel {
                 update(updated)
                 setStage(job.id, .done(updated.tvContentID ?? ""))
                 sentAny = true
+            } catch let e as ArtError {
+                switch e {
+                case .tv(let code, _):
+                    // There's no storage query; a refused upload most likely means the TV is full.
+                    setStage(job.id, .failed("The TV refused it (error \(code)). It may be full."))
+                    lastError = "The TV refused a photo (error \(code)). It's probably full: delete some on the On the TV screen to make room, then send again."
+                    break
+                case .disconnected, .timedOut:
+                    // It went to sleep mid-send. Try again when it's back (a copy that did land is recognized first).
+                    if let i = jobs.firstIndex(where: { $0.id == job.id }) { jobs[i].stage = .waiting }
+                    if let client { await client.connection.close() }
+                    client = nil
+                    tvState = .unavailable(asleepMessage)
+                default:
+                    setStage(job.id, .failed(String(describing: e)))
+                }
+                if case .tv = e { break }
             } catch {
                 setStage(job.id, .failed(String(describing: error)))
             }

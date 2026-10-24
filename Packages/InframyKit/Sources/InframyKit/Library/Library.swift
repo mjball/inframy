@@ -66,12 +66,6 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var photosLocalIdentifier: String? = nil
     /// Light unsharp mask after resizing (SPEC §5: off by default, judged on the actual TV).
     public var sharpen: Bool? = nil
-    /// When the current TV copy went up (rotation takes the oldest down first).
-    public var onTVSince: Date? = nil
-    /// When it last left the TV (rotation brings back the longest-absent first).
-    public var lastOnTV: Date? = nil
-    /// Never rotated off the TV.
-    public var pinned: Bool? = nil
     /// True when Inframy recognized this photo on the TV (rather than sending it). Its crop was recovered from the
     /// TV copy. "Not the same photo" undoes this.
     public var recognizedOnTV: Bool? = nil

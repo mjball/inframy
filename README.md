@@ -12,7 +12,7 @@ shuffle pointed at your photos, skips duplicates, and shows you everything that'
 
 ## Status
 
-Alpha. The app (library, crop editor, send queue, TV grid, rotation, menu bar item) and the command-line tool are
+Alpha. The app (library, crop editor, send queue, TV grid, menu bar item) and the command-line tool are
 built; the core was verified against a 2020 Frame. See [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) for what's
 still to check. See [`docs/SPEC.md`](docs/SPEC.md) for the plan and
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for what's known about the TV's art-mode API.

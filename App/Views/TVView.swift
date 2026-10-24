@@ -210,7 +210,7 @@ struct SendQueueView: View {
             .padding(12)
             Divider()
             if model.jobs.isEmpty {
-                Text("Nothing queued. Accept crops in the Library, then press Send.")
+                Text("Nothing queued. Accept crops in the Library, then press Send. If the TV is asleep, photos wait here until it wakes.")
                     .font(.callout).foregroundStyle(.secondary).padding(16)
             } else {
                 ScrollView {
@@ -245,7 +245,7 @@ struct SendQueueView: View {
 
     private func text(_ stage: AppModel.SendJob.Stage) -> String {
         switch stage {
-        case .waiting: return "Waiting"
+        case .waiting: return model.tvState.isConnected ? "Waiting" : "Waiting for the TV to wake up"
         case .rendering: return "Rendering 3840×2160…"
         case .uploading: return "Uploading…"
         case .replacing: return "Removing the old version from the TV…"

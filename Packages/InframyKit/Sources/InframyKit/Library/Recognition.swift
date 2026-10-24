@@ -50,7 +50,6 @@ public enum Recognition {
         if p.choice == .undecided { p.choice = match.choice }
         p.tvContentID = match.contentID
         p.uploadedRenderKey = tvVersion.renderKey
-        p.onTVSince = p.onTVSince ?? Date()
         p.recognizedOnTV = true
         return p
     }
@@ -62,7 +61,6 @@ public enum Recognition {
         if p.recognizedOnTV == true, !p.isPanelShaped { p.choice = .undecided }
         p.tvContentID = nil
         p.uploadedRenderKey = nil
-        p.onTVSince = nil
         p.recognizedOnTV = nil
         return p
     }

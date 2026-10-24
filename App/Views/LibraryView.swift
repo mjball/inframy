@@ -88,11 +88,8 @@ struct LibraryView: View {
             model.setChoice(photo.status == .skipped ? .undecided : .skip, for: photo.id)
         }
         Divider()
-        if photo.tvContentID != nil {
-            Button(photo.pinned == true ? "Unpin (allow rotation)" : "Pin on TV (never rotate off)") { model.togglePin(photo.id) }
-        }
         Button("Send to TV") { model.send([photo.id]) }
-            .disabled(photo.renderSpec == nil || !model.tvState.isConnected)
+            .disabled(photo.renderSpec == nil)
         if let url = model.url(for: photo) {
             Button("Show Original in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }

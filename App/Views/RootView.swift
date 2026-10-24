@@ -101,8 +101,8 @@ struct RootView: View {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(model.readyToSend.isEmpty || !model.tvState.isConnected)
-            .help("Render and upload every photo whose crop you've accepted")
+            .disabled(model.readyToSend.isEmpty)
+            .help("Render and upload every photo whose crop you've accepted. If the TV is asleep, they go out when it wakes.")
         }
     }
 

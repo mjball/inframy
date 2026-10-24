@@ -16,14 +16,14 @@ Suggested first run, about 10 minutes, with the TV on:
    no cropping needed.
 4. Drop in two or three more photos, crop them (Return = accept & next), press **Send**. Watch the queue.
 5. Look at the TV: full-screen, no mat, shuffling.
-6. Settings (⌘,): look over Rotation and Photos album sync. Both are off until you turn them on.
+6. Settings (⌘,): look over Photos album sync (off until you turn it on).
 
 What each phase added:
 - **Phase 2:** library, crop editor (manual crops only; the suggestion just places the frame), send queue, On the TV
   grid with delete, and the Liquid Glass icon (docs/images/app-icon-*.png).
 - **Phase 3:** automatic recognition of photos already on the TV (with their crops), "Frame" album sync,
   Settings window, per-photo sharpen.
-- **Phase 4:** pool rotation, menu bar item, shuffle upkeep every 15 min, open at login.
+- **Phase 4:** menu bar item, open at login; queued sends and the shuffle check run when the TV wakes.
 
 ## Ground rules I followed
 
@@ -49,23 +49,19 @@ What each phase added:
    *Assumed: you'd rather not duplicate files.* Downside: moving/deleting the original breaks re-renders.
 6. **Removing from the Library doesn't touch the TV**, and deleting from the TV keeps the Library copy.
    *Assumed: they're separate actions.*
-7. **Mac: desktop or laptop?** (Open question from SPEC §7, affects Phase 4 rotation.) *Assumed: a laptop that's
-   often away from home*, so rotation runs opportunistically when the TV is reachable.
+7. ~~Mac: desktop or laptop?~~ Moot: no scheduled rotation any more.
 8. **Album sync is off by default.** Turning it on (Settings → Photos) triggers the Photos permission prompt.
    *Assumed: album name "Frame", import only (photos removed from the album stay in the library and on the TV).*
 9. **Recognizing photos already on the TV** is automatic: a photo counts as the same when the TV copy matches a
    region of the original with correlation ≥ 0.9 (real match: 0.99; unrelated: ≤ 0.6). *Assumed: fine.* Undo with
    right-click → Not the Same Photo.
 10. **Sharpening is per photo** (checkbox in the crop editor) rather than global, so you can compare on the TV.
-11. **Rotation is off by default** (Settings → Rotation). Defaults when you turn it on: keep 40 photos on the TV,
-    rotate daily, swap 20% each time. *Assumed: you'd rather opt in before Inframy starts taking photos down.*
-    The TV's capacity is unknown; if an upload fails on the TV's side, Inframy assumes it's full and shrinks the pool.
-12. **Waking the TV for rotation is off by default.** Waking turns the screen on, possibly at night.
-    *Assumed: not wanted unless you say so.*
+11. ~~Rotation~~ removed: the TV's shuffle rotates; Inframy uploads everything you send.
+12. ~~Waking the TV for rotation~~ removed with rotation.
 13. **"Keep the slideshow on" is on by default.** If the TV's shuffle stops (or someone turns it off with the
-    remote), Inframy turns it back on within 15 minutes while it's running. *Assumed: that's the point (SPEC §7).*
+    remote), Inframy turns it back on when the TV is next awake (2+ photos only). *Assumed: that's the point (SPEC §7).*
     If the household sometimes wants it off, untick it in Settings.
-14. **Pinning.** Right-click a photo that's on the TV → "Pin on TV" to exclude it from rotation.
+14. ~~Pinning~~ removed with rotation.
 
 ## Things only you can do
 
@@ -79,7 +75,7 @@ What each phase added:
 - Phase 2 app: drag a photo in from the Photos app (Finder drags and the picker are standard; Photos uses file
   promises, which I couldn't test without a mouse).
 - The TV was asleep from ~11:00 while you were away, so the app's live-TV screens are untested on the real TV.
-- Phase 4: turn on rotation with a small pool and check uploads happen before removals; check the menu bar item.
+- Phase 4: send while the TV is asleep and check the photo goes out when it wakes; check the menu bar item.
 
 ## Decided since
 
