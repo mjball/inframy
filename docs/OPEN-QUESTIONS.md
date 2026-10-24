@@ -21,7 +21,7 @@ Suggested first run, about 10 minutes, with the TV on:
 What each phase added:
 - **Phase 2:** library, crop editor (manual crops only; the suggestion just places the frame), send queue, On the TV
   grid with delete, and the Liquid Glass icon (docs/images/app-icon-*.png).
-- **Phase 3:** adoption of photos already on the TV (perceptual-hash matches you confirm), "Frame" album sync,
+- **Phase 3:** automatic recognition of photos already on the TV (with their crops), "Frame" album sync,
   Settings window, per-photo sharpen.
 - **Phase 4:** pool rotation, menu bar item, shuffle upkeep every 15 min, open at login.
 
