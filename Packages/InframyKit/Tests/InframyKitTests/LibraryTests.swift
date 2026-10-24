@@ -223,12 +223,35 @@ struct PhotoSenderTests {
 }
 
 struct AlbumSyncTests {
-    @Test func onlyUnknownAlbumPhotosAreNew() {
-        var known = LibraryPhoto(id: UUID(), displayName: "a", source: .copy(filename: "a.jpg"), sha256: "1",
-                                 pixelWidth: 10, pixelHeight: 10, choice: .undecided, suggestedCenter: nil,
-                                 tvContentID: nil, uploadedRenderKey: nil, addedAt: Date())
-        known.photosLocalIdentifier = "A/L0/001"
-        #expect(PhotosAlbumSync.newIdentifiers(album: ["A/L0/001", "B/L0/001"], library: [known]) == ["B/L0/001"])
+    func albumPhoto(_ asset: String, album: String = "ALBUM", modified: TimeInterval = 100) -> LibraryPhoto {
+        var p = LibraryPhoto(id: UUID(), displayName: asset, source: .copy(filename: "\(asset).jpg"), sha256: asset,
+                             pixelWidth: 5000, pixelHeight: 4000, choice: .undecided, suggestedCenter: nil,
+                             tvContentID: nil, uploadedRenderKey: nil, addedAt: Date())
+        p.photosLocalIdentifier = asset
+        p.photosAlbumID = album
+        p.photosModifiedAt = Date(timeIntervalSince1970: modified)
+        return p
+    }
+
+    @Test func diffFindsNewEditedAndRemoved() {
+        let kept = albumPhoto("kept"), edited = albumPhoto("edited"), gone = albumPhoto("gone")
+        let otherAlbum = albumPhoto("elsewhere", album: "OTHER")   // from a previous album: never "removed"
+        var handImported = albumPhoto("hand")
+        handImported.photosLocalIdentifier = nil
+        handImported.photosAlbumID = nil
+        var alreadyPending = albumPhoto("pending")
+        alreadyPending.pendingRemoval = true
+
+        let album: [PhotosAlbumSync.Asset] = [
+            .init(id: "kept", modified: Date(timeIntervalSince1970: 100)),
+            .init(id: "edited", modified: Date(timeIntervalSince1970: 500)),
+            .init(id: "brand-new", modified: Date(timeIntervalSince1970: 50)),
+        ]
+        let d = PhotosAlbumSync.diff(album: album, albumID: "ALBUM",
+                                     library: [kept, edited, gone, otherAlbum, handImported, alreadyPending])
+        #expect(d.new == ["brand-new"])
+        #expect(d.edited == ["edited"])
+        #expect(d.removed == [gone.id])
     }
 
     @Test func libraryDecodesWithoutNewFields() throws {
@@ -307,5 +330,54 @@ struct MinimumSizeTests {
         #expect(g.upscale <= 1.0001)
         let exact = CropGeometry(imageSize: CGSize(width: 3840, height: 2160))
         #expect(exact.maxZoom == 1)
+    }
+}
+
+struct ReplaceOriginalTests {
+    func write(_ url: URL, _ w: Int, _ h: Int, gray: CGFloat) throws {
+        try TestImage.jpeg(width: w, height: h, colorSpace: .sRGB) { ctx, cw, ch in
+            ctx.setFillColor(gray: gray, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: cw, height: ch))
+            ctx.setFillColor(gray: 1 - gray, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: cw / 3, height: ch / 3))
+        }.write(to: url)
+    }
+
+    @Test func editKeepsCropWhenShapeIsUnchanged() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("edit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = LibraryStore(directory: dir.appendingPathComponent("data"))
+        let v1 = dir.appendingPathComponent("v1.jpg"), v2 = dir.appendingPathComponent("v2.jpg")
+        try write(v1, 400, 300, gray: 0.2)
+        try write(v2, 400, 300, gray: 0.7)   // edited: same shape, new pixels
+        guard case .imported(var photo) = try store.importPhoto(at: v1, copy: true, existing: [], minimumSize: .zero) else { return }
+        let crop = NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75)
+        photo.choice = .crop(crop)
+        photo.tvContentID = "MY_F0009"
+        photo.uploadedRenderKey = photo.renderKey
+        #expect(photo.status == .onTV)
+
+        let updated = try #require(try store.replaceOriginal(of: photo, with: v2, minimumSize: .zero))
+        #expect(updated.choice == .crop(crop))
+        #expect(updated.status == .changedSinceUpload)      // ready to replace the TV copy
+        #expect(updated.sha256 != photo.sha256)
+        let url = try #require(store.url(for: updated))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(try ImagePipeline.sha256(of: url) == updated.sha256)
+        #expect(try store.replaceOriginal(of: updated, with: v2, minimumSize: .zero) == nil)   // same bytes: no-op
+    }
+
+    @Test func editThatChangesShapeNeedsANewCrop() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("edit2-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = LibraryStore(directory: dir.appendingPathComponent("data"))
+        let v1 = dir.appendingPathComponent("v1.jpg"), v2 = dir.appendingPathComponent("v2.jpg")
+        try write(v1, 400, 300, gray: 0.2)
+        try write(v2, 400, 400, gray: 0.2)   // cropped square in Photos
+        guard case .imported(var photo) = try store.importPhoto(at: v1, copy: true, existing: [], minimumSize: .zero) else { return }
+        photo.choice = .crop(NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75))
+        let updated = try #require(try store.replaceOriginal(of: photo, with: v2, minimumSize: .zero))
+        #expect(updated.choice == .undecided)
+        #expect(updated.pixelHeight == 400)
     }
 }

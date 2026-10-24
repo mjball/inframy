@@ -64,6 +64,12 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var addedAt: Date
     /// PhotoKit `localIdentifier` when the photo came from the synced Photos album.
     public var photosLocalIdentifier: String? = nil
+    /// The album it was synced from (PhotoKit collection id). Removals only apply to photos from the current album.
+    public var photosAlbumID: String? = nil
+    /// The asset's modification date when last imported; a newer one means it was edited in Photos.
+    public var photosModifiedAt: Date? = nil
+    /// Removed from the album: waiting for the TV (to delete its copy) before leaving the library. Hidden in the UI.
+    public var pendingRemoval: Bool? = nil
     /// Light unsharp mask after resizing (SPEC §5: off by default, judged on the actual TV).
     public var sharpen: Bool? = nil
     /// True when Inframy recognized this photo on the TV (rather than sending it). Its crop was recovered from the
@@ -199,6 +205,47 @@ public struct LibraryStore: Sendable {
         // A photo that's already 16:9 has nothing to choose: resize only.
         if photo.isPanelShaped { photo.choice = .crop(.full) }
         return .imported(photo)
+    }
+
+    /// Replaces a copied original with a new version (the photo was edited in Photos). Keeps the crop if the shape
+    /// is unchanged; otherwise it needs a new crop. Returns nil if nothing actually changed (same bytes).
+    public func replaceOriginal(of photo: LibraryPhoto, with file: URL,
+                                minimumSize: CGSize = Panel.minimumSourceSize) throws -> LibraryPhoto? {
+        let sha = try ImagePipeline.sha256(of: file)
+        guard sha != photo.sha256 else { return nil }
+        guard let size = Self.orientedPixelSize(of: file) else { throw ImagePipelineError.unreadable(file.lastPathComponent) }
+        guard Self.isLargeEnough(size, minimum: minimumSize) else {
+            throw ImportError.tooSmall(name: photo.displayName, width: Int(size.width), height: Int(size.height))
+        }
+        try FileManager.default.createDirectory(at: originalsDirectory, withIntermediateDirectories: true)
+        let ext = file.pathExtension.isEmpty ? "jpg" : file.pathExtension.lowercased()
+        // A new name per version, so a cached render of the old version can never be mistaken for the new one.
+        let filename = "\(photo.id.uuidString)-\(sha.prefix(8)).\(ext)"
+        let dest = originalsDirectory.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.copyItem(at: file, to: dest)
+        if case .copy(let old) = photo.source, old != filename {
+            try? FileManager.default.removeItem(at: originalsDirectory.appendingPathComponent(old))
+        }
+        var p = photo
+        let sameShape = abs(Double(size.width) / Double(size.height) - p.aspect) / p.aspect < 0.01
+        p.source = .copy(filename: filename)
+        p.sha256 = sha
+        p.pixelWidth = Int(size.width)
+        p.pixelHeight = Int(size.height)
+        p.suggestedCenter = nil
+        if !sameShape {
+            p.choice = p.isPanelShaped ? .crop(.full) : .undecided
+            p.recognizedOnTV = nil
+        }
+        return p
+    }
+
+    /// Deletes a copied original (when a synced photo leaves the library). Files elsewhere are never touched.
+    public func deleteCopy(of photo: LibraryPhoto) {
+        if case .copy(let filename) = photo.source {
+            try? FileManager.default.removeItem(at: originalsDirectory.appendingPathComponent(filename))
+        }
     }
 
     /// Pixel size with EXIF orientation applied (portrait photos report swapped dimensions).

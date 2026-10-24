@@ -74,7 +74,11 @@ final class AppModel {
     }
 
     func start() async {
-        photos = store.load()
+        let loaded = store.load()
+        photos = loaded.filter { $0.pendingRemoval != true }
+        pendingRemovals = loaded.filter { $0.pendingRemoval == true }
+        await migrateAlbumSetting()
+        startWatchingAlbum()
         // Development: `INFRAMY_IMPORT=/path/a.jpg:/path/b.heic` imports on launch; `INFRAMY_OPEN=editor|tv` picks a screen.
         let env = ProcessInfo.processInfo.environment
         if let list = env["INFRAMY_IMPORT"] {
@@ -131,6 +135,7 @@ final class AppModel {
 
     /// Runs whenever a connection is (re)established.
     private func tvAppeared() async {
+        await processPendingRemovals()
         if jobs.contains(where: { $0.stage == .waiting }) { startQueue() }
         await reassertShuffle()
     }
@@ -156,29 +161,121 @@ final class AppModel {
         }
     }
 
-    // MARK: Photos album
+    // MARK: Photos album (the source of truth for what's on the TV)
 
-    var albumSyncEnabled: Bool { UserDefaults.standard.bool(forKey: Prefs.albumSyncEnabled) }
-    var albumName: String { UserDefaults.standard.string(forKey: Prefs.albumName) ?? PhotosAlbumSync.defaultAlbumName }
+    var albumID: String? { UserDefaults.standard.string(forKey: Prefs.albumID) }
+    var albumTitle: String? { UserDefaults.standard.string(forKey: Prefs.albumTitle) }
+    var lastAlbumSync: Date? = UserDefaults.standard.object(forKey: Prefs.lastAlbumSync) as? Date
+    /// Photos that left the album but still have a copy on the TV; removed once the TV is awake.
+    var pendingRemovals: [LibraryPhoto] = []
+    @ObservationIgnored private var albumWatcher: PhotosAlbumSync.Watcher?
+    @ObservationIgnored private var albumSyncDebounce: Task<Void, Never>?
 
-    /// Imports new photos from the configured Photos album. Quiet unless the user asked or something was added.
+    func chooseAlbum(_ album: PhotosAlbumSync.Album?) {
+        let d = UserDefaults.standard
+        if let album {
+            guard album.id != albumID else { return }
+            d.set(album.id, forKey: Prefs.albumID)
+            d.set(album.title, forKey: Prefs.albumTitle)
+            startWatchingAlbum()
+            Task { await syncAlbum(userInitiated: true) }
+        } else {
+            d.removeObject(forKey: Prefs.albumID)
+            d.removeObject(forKey: Prefs.albumTitle)
+            albumWatcher = nil
+        }
+    }
+
+    /// The old setting (enabled + typed name) becomes an album id.
+    private func migrateAlbumSetting() async {
+        let d = UserDefaults.standard
+        guard albumID == nil, d.bool(forKey: Prefs.legacyAlbumSyncEnabled),
+              let name = d.string(forKey: Prefs.legacyAlbumName), let id = await PhotosAlbumSync.albumID(named: name) else { return }
+        d.set(id, forKey: Prefs.albumID)
+        d.set(name, forKey: Prefs.albumTitle)
+        d.removeObject(forKey: Prefs.legacyAlbumSyncEnabled)
+    }
+
+    /// Live sync: any change in Photos triggers a (debounced) sync of the chosen album.
+    private func startWatchingAlbum() {
+        guard albumID != nil, PhotosAlbumSync.isAuthorized, albumWatcher == nil else { return }
+        albumWatcher = PhotosAlbumSync.Watcher { [weak self] in
+            Task { @MainActor in self?.scheduleAlbumSync() }
+        }
+    }
+
+    private func scheduleAlbumSync() {
+        albumSyncDebounce?.cancel()
+        albumSyncDebounce = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await syncAlbum(userInitiated: false)
+        }
+    }
+
+    /// Brings the library in line with the album: new photos in, edits picked up, removals handled.
     func syncAlbum(userInitiated: Bool) async {
-        guard albumSyncEnabled, !isSyncingAlbum else { return }
+        guard let albumID, !isSyncingAlbum else { return }
         isSyncingAlbum = true
         defer { isSyncingAlbum = false }
         do {
-            let result = try await PhotosAlbumSync.sync(albumName: albumName, store: store, library: photos)
-            for photo in result.linked { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
+            let result = try await PhotosAlbumSync.sync(albumID: albumID, store: store, library: photos + pendingRemovals)
+            UserDefaults.standard.set(result.albumTitle, forKey: Prefs.albumTitle)
+            for photo in result.updated { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
             photos.append(contentsOf: result.imported)
-            if !result.imported.isEmpty || !result.linked.isEmpty { saveLibrary() }
+            handleAlbumRemovals(result.removed)
+            saveLibrary()
+            lastAlbumSync = Date()
+            UserDefaults.standard.set(lastAlbumSync, forKey: Prefs.lastAlbumSync)
             if !result.imported.isEmpty { await recognizeTVPhotos() }
-            if userInitiated || !result.imported.isEmpty || !result.failures.isEmpty {
-                var text = "\(result.imported.count) new photo\(result.imported.count == 1 ? "" : "s") from \"\(albumName)\"."
-                if !result.failures.isEmpty { text += " Couldn't export: \(result.failures.joined(separator: ", "))." }
-                lastError = text
+            await processPendingRemovals()
+            if !result.failures.isEmpty {
+                lastError = "Some photos in \u{201C}\(result.albumTitle)\u{201D} were skipped:\n" + result.failures.joined(separator: "\n")
+            } else if userInitiated {
+                let n = result.imported.count
+                lastError = n == 0 ? "\u{201C}\(result.albumTitle)\u{201D} is up to date."
+                    : "\(n) new photo\(n == 1 ? "" : "s") from \u{201C}\(result.albumTitle)\u{201D}."
             }
         } catch {
             if userInitiated { lastError = String(describing: error) }
+        }
+    }
+
+    /// Photos that left the album: off the TV too (unless Matt chose to keep them), then out of the library.
+    private func handleAlbumRemovals(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        let keepOnTV = UserDefaults.standard.string(forKey: Prefs.albumRemoval) == "keep"
+        for id in ids {
+            guard let i = photos.firstIndex(where: { $0.id == id }) else { continue }
+            var photo = photos.remove(at: i)
+            jobs.removeAll { $0.photoID == id && !$0.isFinished }
+            if keepOnTV {
+                // Becomes an ordinary library photo; stays on the TV.
+                photo.photosAlbumID = nil
+                photo.photosLocalIdentifier = nil
+                photos.insert(photo, at: min(i, photos.count))
+            } else if photo.tvContentID != nil {
+                photo.pendingRemoval = true
+                pendingRemovals.append(photo)
+            } else {
+                store.deleteCopy(of: photo)
+            }
+        }
+    }
+
+    /// Deletes TV copies of photos that left the album, once the TV is awake.
+    func processPendingRemovals() async {
+        guard tvState.isConnected, !pendingRemovals.isEmpty else { return }
+        let ids = pendingRemovals.compactMap(\.tvContentID)
+        guard let deleted = try? await withClient({ try await $0.delete(ids) }) else { return }
+        let gone = Set(deleted)
+        let done = pendingRemovals.filter { $0.tvContentID.map(gone.contains) ?? true }
+        for photo in done { store.deleteCopy(of: photo) }
+        pendingRemovals.removeAll { p in done.contains { $0.id == p.id } }
+        tvItems.removeAll { gone.contains($0.contentID) }
+        saveLibrary()
+        if tvItems.count < 2, slideshow?.isOn == true, slideshow?.categoryID == ArtProtocol.personalCategory {
+            await setShuffle(on: false)
         }
     }
 
@@ -327,7 +424,9 @@ final class AppModel {
     }
 
     /// The library photo that was uploaded as this TV item, if any.
-    func photo(forTVItem id: String) -> LibraryPhoto? { photos.first { $0.tvContentID == id } }
+    func photo(forTVItem id: String) -> LibraryPhoto? {
+        photos.first { $0.tvContentID == id } ?? pendingRemovals.first { $0.tvContentID == id }
+    }
 
     func deleteFromTV(_ ids: Set<String>) async {
         do {
@@ -366,7 +465,7 @@ final class AppModel {
     // MARK: Library
 
     func saveLibrary() {
-        do { try store.save(photos) } catch { lastError = "Couldn't save the library: \(error)" }
+        do { try store.save(photos + pendingRemovals) } catch { lastError = "Couldn't save the library: \(error)" }
     }
 
     /// Imports files. `copy` for files that are only temporary (Photos drags, the Photos picker).

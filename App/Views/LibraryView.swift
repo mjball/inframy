@@ -42,7 +42,9 @@ struct LibraryView: View {
 
     private var subtitle: String {
         let n = model.photos.count
-        return "\(n) photo\(n == 1 ? "" : "s")"
+        let count = "\(n) photo\(n == 1 ? "" : "s")"
+        guard let album = model.albumTitle, model.albumID != nil else { return count }
+        return "\(count) · synced with \u{201C}\(album)\u{201D}"
     }
 
     private func photos(_ status: LibraryPhoto.Status) -> [LibraryPhoto] {
@@ -95,9 +97,15 @@ struct LibraryView: View {
         }
         Divider()
         let ids = selection.contains(photo.id) ? selection : [photo.id]
-        Button("Remove from Library", role: .destructive) {
-            model.removeFromLibrary(ids)
-            selection.subtract(ids)
+        if photo.photosAlbumID != nil, photo.photosAlbumID == model.albumID {
+            // The album is the source of truth: removing it here would just bring it back on the next sync.
+            Button("To remove, take it out of \u{201C}\(model.albumTitle ?? "the album")\u{201D} in Photos") {}
+                .disabled(true)
+        } else {
+            Button("Remove from Library", role: .destructive) {
+                model.removeFromLibrary(ids)
+                selection.subtract(ids)
+            }
         }
     }
 }

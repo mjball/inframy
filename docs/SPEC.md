@@ -205,8 +205,10 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - [x] Ledger, dedup, recognition of pre-existing TV images (§6): sub-image matching against uncropped originals,
       automatic with "Not the Same Photo" to undo; crop recovered from the TV copy. Nothing is ever deleted
       automatically.
-- [x] Photos album sync ("Frame" album, configurable in Settings; off until enabled). New album photos arrive
-      as "needs crop"; edited versions are used.
+- [x] Photos album sync (2026-10-24 rework): pick the album from a list (remembered by PhotoKit id, survives renames);
+      live sync via a Photos change observer; new photos arrive as "needs crop" (or recognized if already on the TV);
+      edits in Photos are re-imported (crop kept if the shape is unchanged); photos removed from the album are
+      removed from the TV too (setting: or kept), waiting for the TV if it's asleep. Inframy never writes to Photos.
 - [x] ~~Portrait modes~~ dropped: landscape only, minimum 3840×2160, no upscaling (Matt, 2026-10-24).
 
 ### Phase 4: Upkeep
