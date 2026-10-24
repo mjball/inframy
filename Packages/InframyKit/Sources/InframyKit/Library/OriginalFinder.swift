@@ -107,6 +107,33 @@ public enum OriginalFinder {
             }
             if let best { matches.append(best) }
         }
+        // 4. Deeper pass for copies still unmatched: every full-size photo from the two weeks before the copy's date
+        //    through the day after, previews downloaded from iCloud if needed, all checked directly (no shortlist).
+        let found = Set(matches.map(\.copyAssetID))
+        let leftovers = copyAssets.filter { !found.contains($0.localIdentifier) && $0.creationDate != nil }
+        for (i, copy) in leftovers.enumerated() {
+            if Task.isCancelled { break }
+            guard let taken = copy.creationDate,
+                  let copyImage = await image(of: copy, maxPixel: 320, network: true) else { continue }
+            let window = candidates.filter { c in
+                guard let t = c.creationDate else { return false }
+                return t > taken.addingTimeInterval(-14 * 86400) && t < taken.addingTimeInterval(86400)
+            }
+            var best: Match?
+            for (j, candidate) in window.enumerated() {
+                if Task.isCancelled { break }
+                progress(Progress(phase: "Looking closer (\(i + 1) of \(leftovers.count))", done: j, total: window.count))
+                let id = candidate.localIdentifier
+                if previews[id] == nil { previews[id] = await image(of: candidate, maxPixel: 640, network: true) }
+                guard let preview = previews[id],
+                      let r = SubImageMatcher.match(original: preview, tvImage: copyImage),
+                      case .crop(let rect) = r.choice, r.score > (best?.score ?? 0) else { continue }
+                best = Match(copyAssetID: copy.localIdentifier, originalAssetID: id,
+                             originalName: PhotosAlbumSync.displayName(of: candidate), crop: rect, score: r.score)
+                if r.score > 0.97 { break }
+            }
+            if let best { matches.append(best) }
+        }
         progress(Progress(phase: "Done", done: copyAssets.count, total: copyAssets.count))
         return matches
     }
@@ -188,7 +215,15 @@ extension PhotosAlbumSync {
         photo.photosAlbumID = albumID
         photo.photosModifiedAt = copy.modificationDate
         photo.photosOriginalID = match.originalAssetID
-        photo.choice = .crop(match.crop)
+        // A 16:9 copy's crop is the TV crop Matt chose back then. Any other shape can't be used as-is: start the
+        // crop editor centered on where the copy was.
+        let cropAspect = match.crop.width * Double(photo.pixelWidth) / (match.crop.height * Double(photo.pixelHeight))
+        if abs(cropAspect - Panel.aspect) / Panel.aspect < 0.02 {
+            photo.choice = .crop(match.crop)
+        } else {
+            photo.choice = .undecided
+            photo.suggestedCenter = [match.crop.x + match.crop.width / 2, match.crop.y + match.crop.height / 2]
+        }
         if let date = original.creationDate { photo.addedAt = date }
         return .imported(photo)
     }

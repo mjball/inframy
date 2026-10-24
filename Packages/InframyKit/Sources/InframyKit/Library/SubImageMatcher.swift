@@ -66,7 +66,8 @@ public enum SubImageMatcher {
         var best: Hit?
         for scale in scales {
             let tw = Int((Double(image.width) * scale).rounded())
-            let th = Int((Double(tw) * 9 / 16).rounded())
+            // The copy's own shape: 16:9 for TV copies, but saved copies can be anything (e.g. 4:3).
+            let th = Int((Double(tw) * Double(tv.height) / Double(tv.width)).rounded())
             guard tw >= 8, th >= 4, tw <= image.width, th <= image.height,
                   var template = Gray(tv, width: tw, height: th), template.normalize() else { continue }
             let xs = clamp(region?.x ?? 0...(image.width - tw), 0, image.width - tw)
