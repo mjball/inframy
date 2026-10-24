@@ -381,3 +381,13 @@ struct ReplaceOriginalTests {
         #expect(updated.pixelHeight == 400)
     }
 }
+
+struct SkippedNameTests {
+    @Test func idLikeNamesAreHidden() {
+        let id = PhotosAlbumSync.SkippedPhoto(assetID: "a", name: "3173E233-25E7-437C-8BF2-66D701AD5EDA", width: 2048,
+                                              height: 1152, modified: nil)
+        let named = PhotosAlbumSync.SkippedPhoto(assetID: "b", name: "IMG_1234", width: 2856, height: 2142, modified: nil)
+        #expect(id.readableName == nil)
+        #expect(named.readableName == "IMG_1234")
+    }
+}
