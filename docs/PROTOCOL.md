@@ -343,6 +343,13 @@ run while the screen is on, or after Wake-on-LAN (untested from this state).
   off is not useful for background jobs. *Untested:* WOL from the motion-sensor sleep.
 - Inframy's "Wake the TV to rotate" stays off by default.
 
+### Storage (2026-10-24)
+
+The art API has no storage query, but the TV shows it under **Settings → Support → Device Care → Manage Storage**:
+2.19 GB used, **1.63 GB free** (before Matt removed unneeded apps). A detailed 3840×2160 render at JPEG quality 0.9
+is ~2.9 MB, so roughly 500+ photos fit. Inframy uploads everything and stops with a "probably full" message if the
+TV refuses an upload.
+
 ### Network setup that works (2026-10-23)
 
 Manual IP `192.168.5.86/22` (eero reservation on the same IP), **gateway and DNS = the Pi-hole (`192.168.4.70`)**.

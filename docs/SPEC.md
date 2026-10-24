@@ -35,9 +35,8 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
 - **No internet, by design.** The TV is on the main LAN with a static IP (`192.168.5.86`) whose gateway is itself,
   so it can't reach the internet (no ads, autoplaying channels, or firmware updates). Consequences: SmartThings
   can't reach it, its clock may drift, and SSDP discovery stops working (Bonjour still does).
-- **Storage is small.** One 2020 LS03T owner reported ~259 MB free after installing a few apps. Plan for the
-  TV holding hundreds of photos, not thousands. Inframy uploads everything Matt sends and lets the TV shuffle;
-  when the TV is full, it says so (§7).
+- **Storage:** Matt's TV shows 1.63 GB free (Device Care), about 500+ photos at ~2.9 MB each. The art API
+  can't report it; Inframy stops with a "probably full" message if an upload is refused.
 - **Reachability:** TV must be on, in Art Mode, or in standby with network standby enabled. Same subnet as the Mac.
 - **Slideshow reliability:** 2020 owners report the art slideshow sometimes stops; Inframy should re-assert it.
 
