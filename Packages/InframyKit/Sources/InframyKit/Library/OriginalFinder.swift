@@ -96,8 +96,12 @@ public enum OriginalFinder {
             for candidate in shortlist {
                 let id = candidate.localIdentifier
                 if previews[id] == nil { previews[id] = await image(of: candidate, maxPixel: 640, network: true) }
-                guard let preview = previews[id],
-                      let r = SubImageMatcher.match(original: preview, tvImage: copyImage),
+                guard let preview = previews[id] else { continue }
+                // Taken at the very same second: strong evidence on its own, so a weaker crop score is enough
+                // (edited copies, heavy toning).
+                let sameMoment = candidate.creationDate.flatMap { t in copy.creationDate.map { abs(t.timeIntervalSince($0)) < 2 } } ?? false
+                let threshold = sameMoment ? 0.75 : SubImageMatcher.threshold
+                guard let r = SubImageMatcher.matchCrop(original: preview, tvImage: copyImage), r.score >= threshold,
                       case .crop(let rect) = r.choice else { continue }
                 if r.score > (best?.score ?? 0) {
                     best = Match(copyAssetID: copy.localIdentifier, originalAssetID: id,

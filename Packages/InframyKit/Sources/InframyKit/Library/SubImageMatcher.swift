@@ -34,7 +34,8 @@ public enum SubImageMatcher {
         let aspect = Double(original.width) / Double(original.height)
         // Coarse: 64 px wide original, every crop width from 25% to 100% in 3% steps, every position.
         let coarseW = 64
-        guard let coarse = Gray(original, width: coarseW, height: max(Int((Double(coarseW) / aspect).rounded()), 1)) else { return nil }
+        guard var coarse = Gray(original, width: coarseW, height: max(Int((Double(coarseW) / aspect).rounded()), 1)) else { return nil }
+        coarse.blur()
         var scales = Array(stride(from: minimumCropWidth, through: 1.0, by: 0.03))
         if scales.last != 1.0 { scales.append(1.0) }
         guard let hit = search(coarse, tvImage, scales: scales, region: nil) else { return nil }
@@ -42,7 +43,8 @@ public enum SubImageMatcher {
         // Fine: 256 px wide, scales within ±3% of the hit, positions within ±8 px of it.
         let k = 4
         let fineW = coarseW * k
-        guard let fine = Gray(original, width: fineW, height: max(Int((Double(fineW) / aspect).rounded()), 1)) else { return nil }
+        guard var fine = Gray(original, width: fineW, height: max(Int((Double(fineW) / aspect).rounded()), 1)) else { return nil }
+        fine.blur()
         let fineScales = stride(from: hit.scale - 0.03, through: hit.scale + 0.03, by: 0.01).filter { $0 > 0.05 && $0 <= 1.0001 }
         let region = (x: (hit.x * k - 8)...(hit.x * k + 8), y: (hit.y * k - 8)...(hit.y * k + 8))
         let best = search(fine, tvImage, scales: fineScales, region: region) ?? hit.rescaled(by: k)
@@ -69,7 +71,9 @@ public enum SubImageMatcher {
             // The copy's own shape: 16:9 for TV copies, but saved copies can be anything (e.g. 4:3).
             let th = Int((Double(tw) * Double(tv.height) / Double(tv.width)).rounded())
             guard tw >= 8, th >= 4, tw <= image.width, th <= image.height,
-                  var template = Gray(tv, width: tw, height: th), template.normalize() else { continue }
+                  var template = Gray(tv, width: tw, height: th) else { continue }
+            template.blur()
+            guard template.normalize() else { continue }
             let xs = clamp(region?.x ?? 0...(image.width - tw), 0, image.width - tw)
             let ys = clamp(region?.y ?? 0...(image.height - th), 0, image.height - th)
             guard let xs, let ys else { continue }
@@ -127,6 +131,29 @@ struct Gray {
         self.height = height
         pixels = [Float](repeating: 0, count: bytes.count)
         vDSP_vfltu8(bytes, 1, &pixels, 1, vDSP_Length(bytes.count))
+    }
+
+    /// A light blur (≈ Gaussian, σ 1 px). Fine texture such as waves loses most of its correlation from a
+    /// fraction-of-a-pixel misalignment after resizing; blurring both sides first makes NCC tolerant of that
+    /// (Matt's beach photo: 0.91 → 0.99 for the true match).
+    mutating func blur() {
+        guard width >= 5, height >= 5 else { return }
+        let k: [Float] = [1, 4, 6, 4, 1].map { $0 / 16 }
+        var tmp = pixels
+        for y in 0..<height {
+            for x in 0..<width {
+                var acc: Float = 0
+                for i in -2...2 { acc += k[i + 2] * pixels[y * width + min(max(x + i, 0), width - 1)] }
+                tmp[y * width + x] = acc
+            }
+        }
+        for y in 0..<height {
+            for x in 0..<width {
+                var acc: Float = 0
+                for i in -2...2 { acc += k[i + 2] * tmp[min(max(y + i, 0), height - 1) * width + x] }
+                pixels[y * width + x] = acc
+            }
+        }
     }
 
     /// Zero mean, unit variance. False for a flat image (nothing to match).
