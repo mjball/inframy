@@ -8,8 +8,8 @@ public struct CropGeometry: Sendable, Equatable {
     public private(set) var zoom: Double
     public private(set) var center: CGPoint
 
-    /// Smallest crop allowed, in source pixels wide (beyond this it's mostly upscaling noise).
-    public static let minimumCropWidth: Double = 480
+    /// Smallest crop allowed, in source pixels wide: the panel's width, so nothing is ever upscaled.
+    public static let minimumCropWidth = Double(Panel.width)
 
     public init(imageSize: CGSize, center: CGPoint = CGPoint(x: 0.5, y: 0.5), zoom: Double = 1) {
         self.imageSize = imageSize

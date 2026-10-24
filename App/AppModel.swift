@@ -396,12 +396,14 @@ final class AppModel {
         var added: [LibraryPhoto] = []
         var duplicates = 0
         var failures: [String] = []
+        var tooSmall: [String] = []
         for url in urls {
             let existing = photos + added
             let result = await Task.detached { try store.importPhoto(at: url, copy: copy, existing: existing) }.result
             switch result {
             case .success(.imported(let photo)): added.append(photo)
             case .success(.duplicate): duplicates += 1
+            case .failure(LibraryStore.ImportError.tooSmall(let name, let w, let h)): tooSmall.append("\(name) (\(w)×\(h))")
             case .failure: failures.append(url.lastPathComponent)
             }
         }
@@ -410,6 +412,9 @@ final class AppModel {
         var notes: [String] = []
         if duplicates > 0 { notes.append("\(duplicates) already in the library") }
         if !failures.isEmpty { notes.append("couldn't read \(failures.joined(separator: ", "))") }
+        if !tooSmall.isEmpty {
+            notes.append("too small for the TV (needs at least \(Panel.width)×\(Panel.height)): \(tooSmall.joined(separator: ", "))")
+        }
         if !notes.isEmpty { lastError = "Imported \(added.count). " + notes.joined(separator: "; ") + "." }
         section = .library
         // Photos already on the TV are recognized (with their crop) before anything asks for a crop.

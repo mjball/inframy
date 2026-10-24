@@ -84,7 +84,6 @@ struct LibraryView: View {
         if photo.recognizedOnTV == true {
             Button("Not the Same Photo") { model.markNotSame(photo.id) }
         }
-        Button("Fit with Blur Fill") { model.setChoice(.fitWithBlur, for: photo.id) }
         Button(photo.status == .skipped ? "Don't Skip" : "Skip") {
             model.setChoice(photo.status == .skipped ? .undecided : .skip, for: photo.id)
         }
@@ -113,7 +112,7 @@ struct EmptyLibraryView: View {
                 .font(.system(size: 54, weight: .light))
                 .foregroundStyle(.secondary)
             Text("Drop photos here").font(.title2.weight(.semibold))
-            Text("Drag photos in from Finder or Photos, or use Import (⌘O).\nYou'll pick the 16:9 area for each one; nothing is cropped for you.")
+            Text("Drag photos in from Finder or Photos, or use Import (⌘O). Photos need to be at least 3840×2160.\nYou'll pick the 16:9 area for each one; nothing is cropped for you.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
         }
@@ -162,8 +161,6 @@ struct PhotoTile: View {
         switch photo.choice {
         case .crop(let rect):
             CroppedImage(image: image, rect: rect)
-        case .fitWithBlur:
-            FitWithBlurPreview(image: image)
         case .undecided, .skip:
             Image(nsImage: image).resizable().scaledToFit()
                 .opacity(photo.status == .skipped ? 0.45 : 1)
@@ -184,21 +181,6 @@ struct CroppedImage: View {
                 .resizable()
                 .frame(width: w, height: h)
                 .offset(x: -rect.x * w, y: -rect.y * h)
-        }
-        .clipped()
-    }
-}
-
-/// Approximation of the pipeline's "fit with blur fill" for previews.
-struct FitWithBlurPreview: View {
-    let image: NSImage
-
-    var body: some View {
-        ZStack {
-            Image(nsImage: image).resizable().scaledToFill()
-                .blur(radius: 18)
-                .brightness(-0.25)
-            Image(nsImage: image).resizable().scaledToFit()
         }
         .clipped()
     }

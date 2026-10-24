@@ -125,27 +125,13 @@ struct ImagePipelineTests {
         #expect(edge.y == 0)
     }
 
-    @Test func fitWithBlurKeepsWholePhotoSharpInCenter() throws {
-        let src = try TestImage.jpeg(width: 1500, height: 2000, colorSpace: .sRGB) { ctx, w, h in
-            ctx.setFillColor(red: 1, green: 0.8, blue: 0, alpha: 1)
-            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        let out = try pipeline.render(try pipeline.load(src), spec: RenderSpec(mode: .fitWithBlur))
-        let decoded = try TestImage.decode(out.jpeg)
-        #expect(decoded.image.width == 3840 && decoded.image.height == 2160)
-        let center = try TestImage.pixel(out.jpeg, x: 1920, y: 1080)
-        let side = try TestImage.pixel(out.jpeg, x: 40, y: 1080)
-        #expect(center[0] > 230 && center[1] > 180)
-        #expect(side[0] < center[0] - 60, "sides should be the darkened blur: \(side) vs \(center)")
-    }
-
     // MARK: Cache
 
     @Test func cacheKeyDependsOnSourceSpecAndVersion() {
         let a = ImagePipeline.cacheKey(sourceSHA256: "abc", spec: RenderSpec(mode: .crop(.full)))
         #expect(a == ImagePipeline.cacheKey(sourceSHA256: "abc", spec: RenderSpec(mode: .crop(.full))))
         #expect(a != ImagePipeline.cacheKey(sourceSHA256: "abd", spec: RenderSpec(mode: .crop(.full))))
-        #expect(a != ImagePipeline.cacheKey(sourceSHA256: "abc", spec: RenderSpec(mode: .fitWithBlur)))
+        #expect(a != ImagePipeline.cacheKey(sourceSHA256: "abc", spec: RenderSpec(mode: .crop(NormalizedRect(x: 0, y: 0, width: 0.5, height: 0.5)))))
         #expect(a != ImagePipeline.cacheKey(sourceSHA256: "abc", spec: RenderSpec(mode: .crop(.full), sharpen: true)))
     }
 

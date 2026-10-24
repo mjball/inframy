@@ -66,13 +66,6 @@ struct RecognitionTests {
         }
     }
 
-    @Test func recognizesFitWithBlur() throws {
-        let portrait = try scene(seed: 11, width: 1500, height: 2000)
-        let tv = try tvThumbnail(of: portrait, spec: RenderSpec(mode: .fitWithBlur))
-        let result = try #require(SubImageMatcher.match(original: try preview(portrait), tvImage: tv))
-        #expect(result.choice == .fitWithBlur)
-    }
-
     func photo(_ name: String, choice: LibraryPhoto.Choice = .undecided, w: Int = 2000, h: Int = 1500) -> LibraryPhoto {
         LibraryPhoto(id: UUID(), displayName: name, source: .copy(filename: "\(name).jpg"), sha256: name,
                      pixelWidth: w, pixelHeight: h, choice: choice, suggestedCenter: nil, tvContentID: nil,

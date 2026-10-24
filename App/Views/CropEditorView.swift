@@ -9,14 +9,8 @@ struct CropEditorView: View {
     @Environment(AppModel.self) private var model
     let photoID: UUID
 
-    enum Mode: String, CaseIterable, Identifiable {
-        case crop = "Crop", fit = "Fit with Blur", skip = "Skip"
-        var id: String { rawValue }
-    }
-
     @State private var preview: CGImage?
     @State private var geometry: CropGeometry?
-    @State private var mode: Mode = .crop
     @State private var suggestion: CGPoint?
     @State private var showWall = false
     @FocusState private var focused: Bool
@@ -31,7 +25,7 @@ struct CropEditorView: View {
                 Color(nsColor: .underPageBackgroundColor)
                 if let preview, let geometry {
                     CropCanvas(image: preview, geometry: Binding(get: { geometry }, set: { self.geometry = $0 }),
-                               mode: mode, suggestion: suggestion, wallPreview: showWall)
+                               suggestion: suggestion, wallPreview: showWall)
                 } else {
                     ProgressView()
                 }
@@ -54,9 +48,10 @@ struct CropEditorView: View {
         }
         .onKeyPress(.escape) { model.editingPhotoID = nil; return .handled }
         .onKeyPress(.space) { showWall.toggle(); return .handled }
-        .onKeyPress(characters: .init(charactersIn: "rR+=-_")) { press in
+        .onKeyPress(characters: .init(charactersIn: "rRsS+=-_")) { press in
             switch press.characters {
             case "r", "R": reset()
+            case "s", "S": skip()
             case "+", "=": geometry?.zoom(by: 1.15)
             default: geometry?.zoom(by: 1 / 1.15)
             }
@@ -77,29 +72,20 @@ struct CropEditorView: View {
                 Text(photo?.displayName ?? "").font(.headline).lineLimit(1)
                 if let photo { Text("\(photo.pixelWidth) × \(photo.pixelHeight)").font(.caption).foregroundStyle(.secondary) }
             }
-            Spacer()
-            Picker("Mode", selection: $mode) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+            if photo?.choice == .skip {
+                Label("Skipped", systemImage: "eye.slash").font(.callout).foregroundStyle(.secondary)
+                    .help("This photo won't be sent. Accept a crop to send it after all.")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 260)
             Spacer()
-            if mode == .crop, let geometry, geometry.upscale > 1.05 {
-                Label(String(format: "Upscaled %.1f×", geometry.upscale), systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(geometry.upscale > 1.6 ? .orange : .secondary)
-                    .help("The chosen area has fewer pixels than the TV. Zoom out for a sharper picture.")
-            }
             Toggle("Sharpen", isOn: Binding(
                 get: { photo?.sharpen ?? false },
                 set: { on in if var p = photo { p.sharpen = on ? true : nil; model.update(p) } }))
                 .toggleStyle(.checkbox)
                 .help("Light sharpening after resizing. Off by default; judge it on the TV.")
-                .disabled(mode == .skip)
             Button("Reset") { reset() }
                 .help("Back to the suggested position (R)")
-                .disabled(mode != .crop)
+            Button("Skip") { skip() }
+                .help("Don't send this photo; go to the next one (S)")
             Button(acceptTitle) { accept() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -119,11 +105,6 @@ struct CropEditorView: View {
         guard let photo, let url = model.url(for: photo) else { return }
         let image = await Task.detached { LibraryStore.thumbnail(of: url, maxPixel: 2560) }.value
         preview = image
-        switch photo.choice {
-        case .fitWithBlur: mode = .fit
-        case .skip: mode = .skip
-        default: mode = .crop
-        }
         if let c = photo.suggestedCenter, c.count == 2 { suggestion = CGPoint(x: c[0], y: c[1]) }
         if case .crop(let rect) = photo.choice {
             geometry = CropGeometry(imageSize: photo.imageSize, rect: rect)
@@ -149,11 +130,12 @@ struct CropEditorView: View {
     }
 
     private func accept() {
-        switch mode {
-        case .crop: if let geometry { model.setChoice(.crop(geometry.rect), for: photoID) }
-        case .fit: model.setChoice(.fitWithBlur, for: photoID)
-        case .skip: model.setChoice(.skip, for: photoID)
-        }
+        if let geometry { model.setChoice(.crop(geometry.rect), for: photoID) }
+        model.editingPhotoID = model.nextUndecided(after: photoID)
+    }
+
+    private func skip() {
+        model.setChoice(.skip, for: photoID)
         model.editingPhotoID = model.nextUndecided(after: photoID)
     }
 }
@@ -163,7 +145,6 @@ struct CropCanvas: View {
     @Environment(\.isSnapshot) private var isSnapshot
     let image: CGImage
     @Binding var geometry: CropGeometry
-    let mode: CropEditorView.Mode
     let suggestion: CGPoint?
     let wallPreview: Bool
 
@@ -172,11 +153,7 @@ struct CropCanvas: View {
             let frame = Self.frameRect(in: geo.size, wall: wallPreview)
             let bezel = frame.width * 0.022
             ZStack(alignment: .topLeading) {
-                if mode == .crop {
-                    cropLayers(frame: frame)
-                } else {
-                    otherModeLayers(frame: frame)
-                }
+                cropLayers(frame: frame)
                 // The TV: white bezel with a soft shadow, like Matt's Frame on the wall.
                 RoundedRectangle(cornerRadius: 3)
                     .strokeBorder(Color(white: 0.96), lineWidth: bezel)
@@ -184,10 +161,10 @@ struct CropCanvas: View {
                     .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
                     .offset(x: frame.minX - bezel, y: frame.minY - bezel)
                     .allowsHitTesting(false)
-                if mode == .crop, !wallPreview { thirds(frame: frame) }
+                if !wallPreview { thirds(frame: frame) }
             }
             .overlay {
-                if mode == .crop && !isSnapshot {
+                if !isSnapshot {
                     MouseCatcher(
                         onDrag: { delta in geometry.pan(by: delta, frameSize: frame.size) },
                         onZoom: { factor, point in
@@ -242,26 +219,6 @@ struct CropCanvas: View {
                 .help("Suggested subject")
                 .allowsHitTesting(false)
         }
-    }
-
-    @ViewBuilder
-    private func otherModeLayers(frame: CGRect) -> some View {
-        let picture = Image(decorative: image, scale: 1).resizable()
-        ZStack {
-            if mode == .fit {
-                picture.scaledToFill().blur(radius: 24).brightness(-0.25)
-                picture.scaledToFit()
-            } else {
-                picture.scaledToFit().opacity(0.25)
-                Label("Skipped: this photo won't be sent", systemImage: "eye.slash")
-                    .font(.title3.weight(.medium))
-                    .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            }
-        }
-        .frame(width: frame.width, height: frame.height)
-        .clipped()
-        .offset(x: frame.minX, y: frame.minY)
     }
 
     private func thirds(frame: CGRect) -> some View {

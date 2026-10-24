@@ -41,7 +41,8 @@ struct CropGeometryTests {
     }
 
     @Test func draggingTheImageRightShowsMoreOfItsLeft() {
-        var g = CropGeometry(imageSize: size)
+        // Big enough that 2× zoom stays above panel resolution.
+        var g = CropGeometry(imageSize: CGSize(width: 12000, height: 9000))
         g.setZoom(2)
         let x0 = g.rect.x
         g.pan(by: CGSize(width: 100, height: 0), frameSize: CGSize(width: 1600, height: 900))
@@ -84,7 +85,7 @@ struct LibraryStoreTests {
         let file = dir.appendingPathComponent("lake.jpg")
         try writeJPEG(file, width: 4000, height: 3000)
 
-        guard case .imported(let photo) = try store.importPhoto(at: file, copy: false, existing: []) else {
+        guard case .imported(let photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else {
             Issue.record("expected import"); return
         }
         #expect(photo.displayName == "lake")
@@ -92,7 +93,7 @@ struct LibraryStoreTests {
         #expect(store.url(for: photo) == file)
         #expect(!FileManager.default.fileExists(atPath: store.originalsDirectory.path))  // not copied
 
-        let again = try store.importPhoto(at: file, copy: false, existing: [photo])
+        let again = try store.importPhoto(at: file, copy: false, existing: [photo], minimumSize: .zero)
         guard case .duplicate(let id) = again else { Issue.record("expected duplicate"); return }
         #expect(id == photo.id)
     }
@@ -102,7 +103,7 @@ struct LibraryStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("wide.jpg")
         try writeJPEG(file, width: 1920, height: 1080)
-        guard case .imported(let photo) = try store.importPhoto(at: file, copy: false, existing: []) else {
+        guard case .imported(let photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else {
             Issue.record("expected import"); return
         }
         #expect(photo.choice == .crop(.full))
@@ -114,7 +115,7 @@ struct LibraryStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("from-photos.jpg")
         try writeJPEG(file, width: 4000, height: 3000, orientation: 6)  // displays as portrait
-        guard case .imported(let photo) = try store.importPhoto(at: file, copy: true, existing: []) else {
+        guard case .imported(let photo) = try store.importPhoto(at: file, copy: true, existing: [], minimumSize: .zero) else {
             Issue.record("expected import"); return
         }
         #expect(photo.pixelWidth == 3000 && photo.pixelHeight == 4000)
@@ -129,7 +130,7 @@ struct LibraryStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("a.jpg")
         try writeJPEG(file, width: 4000, height: 3000)
-        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: []) else { return }
+        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else { return }
         photo.choice = .crop(NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75))
         photo.suggestedCenter = [0.5, 0.48]
         photo.addedAt = Date(timeIntervalSince1970: 1_792_700_000)  // ISO 8601 keeps whole seconds
@@ -142,7 +143,7 @@ struct LibraryStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("a.jpg")
         try writeJPEG(file, width: 4000, height: 3000)
-        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: []) else { return }
+        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else { return }
         photo.choice = .crop(NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75))
         photo.tvContentID = "MY_F0009"
         photo.uploadedRenderKey = photo.renderKey
@@ -167,7 +168,7 @@ struct PhotoSenderTests {
             ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         }.write(to: file)
         let store = LibraryStore(directory: dir.appendingPathComponent("data"))
-        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: []) else { return }
+        guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else { return }
         photo.choice = .crop(NormalizedRect(x: 0, y: 0.125, width: 1, height: 0.75))
         photo.tvContentID = "MY_F0001"  // an older version is on the TV
 
@@ -253,5 +254,58 @@ struct AlbumSyncTests {
         p.sharpen = true
         #expect(p.renderKey != plain)
         #expect(p.renderSpec?.sharpen == true)
+    }
+}
+
+struct MinimumSizeTests {
+    @Test func refusesPhotosSmallerThanThePanel() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("min-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = LibraryStore(directory: dir.appendingPathComponent("data"))
+        let phonePortrait = dir.appendingPathComponent("portrait.jpg")
+        try TestImage.jpeg(width: 3024, height: 4032, colorSpace: .sRGB) { ctx, w, h in
+            ctx.setFillColor(gray: 0.5, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }.write(to: phonePortrait)
+        #expect(throws: LibraryStore.ImportError.self) { _ = try store.importPhoto(at: phonePortrait, copy: false, existing: []) }
+
+        let big = dir.appendingPathComponent("big.jpg")
+        try TestImage.jpeg(width: 3840, height: 2160, colorSpace: .sRGB) { ctx, w, h in
+            ctx.setFillColor(gray: 0.5, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }.write(to: big)
+        guard case .imported(let photo) = try store.importPhoto(at: big, copy: false, existing: []) else {
+            Issue.record("3840×2160 should import"); return
+        }
+        #expect(photo.status == .readyToSend)
+        #expect(LibraryStore.isLargeEnough(CGSize(width: 5712, height: 4284)))
+        #expect(!LibraryStore.isLargeEnough(CGSize(width: 3839, height: 2160)))
+    }
+
+    @Test func legacyFitWithBlurLoadsAsUndecided() throws {
+        let json = #"""
+        [{"id":"8C1B4E0A-8D64-4C34-9C5B-2D7C0E8F6A11","displayName":"old","source":{"copy":{"filename":"x.jpg"}},
+          "sha256":"s","pixelWidth":5000,"pixelHeight":4000,"choice":{"fitWithBlur":{}},"addedAt":"2026-10-23T10:00:00Z"},
+         {"id":"8C1B4E0A-8D64-4C34-9C5B-2D7C0E8F6A12","displayName":"crop","source":{"copy":{"filename":"y.jpg"}},
+          "sha256":"t","pixelWidth":5000,"pixelHeight":4000,
+          "choice":{"crop":{"_0":{"x":0,"y":0.1,"width":1,"height":0.75}}},"addedAt":"2026-10-23T10:00:00Z"}]
+        """#
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(json.utf8).write(to: dir.appendingPathComponent("library.json"))
+        let store = LibraryStore(directory: dir)
+        let photos = store.load()
+        #expect(photos.map(\.choice) == [.undecided, .crop(NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75))])
+        try store.save(photos)
+        #expect(store.load() == photos)
+    }
+
+    @Test func cropCantZoomPastPanelResolution() {
+        var g = CropGeometry(imageSize: CGSize(width: 5712, height: 4284))
+        g.setZoom(100)
+        #expect(abs(g.rect.width * 5712 - 3840) < 0.5)
+        #expect(g.upscale <= 1.0001)
+        let exact = CropGeometry(imageSize: CGSize(width: 3840, height: 2160))
+        #expect(exact.maxZoom == 1)
     }
 }

@@ -63,7 +63,7 @@ Matt explicitly wants 16:9 cropping to be *super easy*. Requirements:
 - **Pan:** drag. **Zoom:** scroll wheel / pinch / `+` `-`. Minimum zoom = image fully covers the frame (no empty
   space, unless the photo is in "fit" mode, below).
 - **No automatic cropping (Matt's call).** Every crop is chosen by Matt. A photo can't be sent until he has accepted
-  its crop (or picked "Fit with blur fill"/"Skip"). There is no "accept all"; images that are already exactly 16:9
+  its crop (or picked "Skip"). There is no "accept all"; images that are already exactly 16:9
   need no crop and are only resized.
 - **Suggested starting position:** the frame starts as the largest 16:9 rect centered on a suggested point: detected
   faces (with headroom), else Vision's attention-based saliency (`VNGenerateAttentionBasedSaliencyImageRequest`),
@@ -73,11 +73,11 @@ Matt explicitly wants 16:9 cropping to be *super easy*. Requirements:
   `Space` = full-screen preview, `R` = reset to the suggested position. Accepting the suggested position is still one
   keystroke (`Return`), but it's always an explicit choice per photo.
 - **Preview as on the wall:** show the crop inside a white bezel at TV proportions.
-- **Quality warning:** if the crop region is narrower than 3840 source pixels, show a badge with the effective
-  resolution (e.g. "upscaled 1.6×") so Matt can zoom out or skip it.
-- **Portrait and square photos:** per-photo mode: *Crop* (16:9 slice, default), *Fit with blur fill*
-  (blurred, darkened copy behind the sharp image), or *Skip*. A later option: pair two portraits side by side.
-- **Non-destructive:** store the crop as a normalized rect + mode per photo. Re-editing is always possible;
+- **No upscaling (Matt's call).** The TV is for showing off great photos, so photos smaller than 3840×2160 are
+  refused at import, and the crop can't zoom in past 3840 source pixels wide.
+- **Landscape only.** No fit-with-blur or portrait modes (removed 2026-10-24): each photo is either cropped or
+  skipped.
+- **Non-destructive:** store the crop as a normalized rect per photo. Re-editing is always possible;
   a changed crop means a re-upload (replace the old TV item).
 
 ## 5. Image pipeline
@@ -86,7 +86,7 @@ Core Image / ImageIO, in `InframyKit`:
 
 1. Load original (file URL or PhotoKit asset data). Apply EXIF orientation.
 2. Convert to **sRGB** (wide-gamut sources look washed out on the Frame otherwise).
-3. Apply crop rect (or fit-with-blur composition).
+3. Apply the crop rect.
 4. Resize to **exactly 3840×2160** with a high-quality filter (Lanczos).
 5. Optional light sharpening (off by default; make it a setting so it can be judged on the actual TV).
 6. Encode JPEG, quality ~0.9, strip metadata (keep none: GPS etc. shouldn't go to the TV).
@@ -183,9 +183,9 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
       delete, change matte, set shuffle. Fake-server tests from Phase 0 fixtures. Bonjour discovery,
       certificate pinning (trust on first use), Wake-on-LAN.
 - [x] Image pipeline with tests.
-- [x] CLI: `pair`, `info`, `ls`, `thumbs <dir>`, `upload <files…> [--rect x,y,w,h | --fit]`, `suggest <file>`,
+- [x] CLI: `pair`, `info`, `ls`, `thumbs <dir>`, `upload <files…> [--rect x,y,w,h]`, `suggest <file>`,
       `rm <ids…>`, `shuffle on|off [--interval]`. No automatic cropping: `upload` takes exact-16:9 images as-is,
-      otherwise needs an explicit `--rect` (normalized) or `--fit`; `suggest` prints the suggested center/frame.
+      otherwise needs an explicit `--rect` (normalized); photos < 3840×2160 and crops < 3840 px wide are refused; `suggest` prints the suggested center/frame.
 - [x] Read-only CLI commands verified on the TV (`discover`, `pair`, `info`, `ls`, `thumbs`).
 - [x] *With Matt's OK:* `upload` + `shuffle on` on the real TV (2026-10-23): `IMG_0296.heic` (4:3) with Matt's
       approved `--rect` → `MY_F0003`, matte none, shown; shuffle every 15 min on `MY-C0002`.
@@ -209,7 +209,7 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
       automatically.
 - [x] Photos album sync ("Frame" album, configurable in Settings; off until enabled). New album photos arrive
       as "needs crop"; edited versions are used.
-- [x] Portrait modes (blur fill, skip): shipped in Phase 2's crop editor.
+- [x] ~~Portrait modes~~ dropped: landscape only, minimum 3840×2160, no upscaling (Matt, 2026-10-24).
 
 ### Phase 4: Scale
 

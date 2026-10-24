@@ -4,8 +4,7 @@ import Foundation
 
 /// Finds where a TV image came from in an original photo.
 ///
-/// Every copy on the TV is either a scaled, axis-aligned 16:9 crop of an original, or the whole original fitted over a
-/// blurred fill. So recognition is template matching: slide the TV thumbnail, at each plausible crop size, over a
+/// Every copy on the TV is a scaled, axis-aligned 16:9 crop of an original, so recognition is template matching: slide the TV thumbnail, at each plausible crop size, over a
 /// small grayscale copy of the original and score each position with normalized cross-correlation (NCC). NCC ignores
 /// brightness and contrast differences, so JPEG recompression and resizing barely move it. Coarse search at 64 px,
 /// then refine at 256 px around the best hit. On Matt's photo: a real match scored 0.99 (crop recovered to within
@@ -22,11 +21,10 @@ public enum SubImageMatcher {
     /// Narrowest crop searched, as a share of the original's width.
     public static let minimumCropWidth = 0.25
 
-    /// The crop (or fit) of `original` that produced `tvImage`, or nil if it isn't from this photo.
+    /// The crop of `original` that produced `tvImage`, or nil if it isn't from this photo.
     /// `original` must have its EXIF orientation applied.
     public static func match(original: CGImage, tvImage: CGImage) -> Result? {
         if let crop = matchCrop(original: original, tvImage: tvImage), crop.score >= threshold { return crop }
-        if let fit = matchFit(original: original, tvImage: tvImage), fit.score >= threshold { return fit }
         return nil
     }
 
@@ -103,42 +101,6 @@ public enum SubImageMatcher {
     private static func clamp(_ r: ClosedRange<Int>, _ lo: Int, _ hi: Int) -> ClosedRange<Int>? {
         let a = max(r.lowerBound, lo), b = min(r.upperBound, hi)
         return a <= b ? a...b : nil
-    }
-
-    // MARK: Fit with blur
-
-    /// The pipeline's "fit with blur" puts the whole original, scaled to fit, centered on the panel. Compare that
-    /// region of the TV image with the original.
-    static func matchFit(original: CGImage, tvImage: CGImage) -> Result? {
-        let aspect = Double(original.width) / Double(original.height)
-        guard abs(aspect - Panel.aspect) / Panel.aspect > 0.02 else { return nil }  // 16:9 originals are crops
-        let W = 160, H = 90
-        let fg: (x: Int, y: Int, w: Int, h: Int)
-        if aspect < Panel.aspect {
-            let w = Int((Double(H) * aspect).rounded())
-            fg = ((W - w) / 2, 0, w, H)
-        } else {
-            let h = Int((Double(W) / aspect).rounded())
-            fg = (0, (H - h) / 2, W, h)
-        }
-        guard fg.w >= 8, fg.h >= 8, let tv = Gray(tvImage, width: W, height: H),
-              var orig = Gray(original, width: fg.w, height: fg.h), orig.normalize() else { return nil }
-        let integral = Integral(tv)
-        let n = Double(fg.w * fg.h)
-        let (sum, sumSq) = integral.sums(x: fg.x, y: fg.y, w: fg.w, h: fg.h)
-        let variance = sumSq / n - (sum / n) * (sum / n)
-        guard variance > 1e-6 else { return nil }
-        var dot: Float = 0
-        tv.pixels.withUnsafeBufferPointer { p in
-            orig.pixels.withUnsafeBufferPointer { t in
-                for row in 0..<fg.h {
-                    var d: Float = 0
-                    vDSP_dotpr(p.baseAddress! + (fg.y + row) * W + fg.x, 1, t.baseAddress! + row * fg.w, 1, &d, vDSP_Length(fg.w))
-                    dot += d
-                }
-            }
-        }
-        return Result(choice: .fitWithBlur, score: Double(dot) / (n * variance.squareRoot()))
     }
 }
 

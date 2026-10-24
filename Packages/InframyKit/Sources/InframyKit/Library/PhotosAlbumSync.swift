@@ -79,6 +79,8 @@ public enum PhotosAlbumSync {
                         result.linked.append(existing)
                     }
                 }
+            } catch let e as LibraryStore.ImportError {
+                result.failures.append(e.description)
             } catch {
                 result.failures.append(asset.value(forKey: "filename") as? String ?? id)
             }
