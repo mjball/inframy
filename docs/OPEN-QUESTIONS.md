@@ -81,3 +81,9 @@ What each phase added:
 - The TV was asleep from ~11:00 while you were away, so the app's live-TV screens are untested on the real TV.
 - Phase 4: turn on rotation with a small pool and check uploads happen before removals; check the menu bar item.
 
+## Decided since
+
+- **Landscape only, no upscaling** (2026-10-24): Fit with Blur is gone; photos under 3840×2160 are refused at
+  import (and by the CLI); crops can't zoom past 3840 source pixels wide. *Open:* also refuse large portraits
+  outright? Right now a 6000×8000 portrait imports and you crop a landscape slice from it.
+

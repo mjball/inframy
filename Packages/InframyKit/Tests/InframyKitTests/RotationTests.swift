@@ -69,7 +69,7 @@ struct RotatorTests {
             ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         }.write(to: src)
         let store = LibraryStore(directory: dir.appendingPathComponent("data"))
-        guard case .imported(let incoming) = try store.importPhoto(at: src, copy: false, existing: []) else { return }
+        guard case .imported(let incoming) = try store.importPhoto(at: src, copy: false, existing: [], minimumSize: .zero) else { return }
         var old = incoming
         old.id = UUID()
         old.tvContentID = "MY_F0001"

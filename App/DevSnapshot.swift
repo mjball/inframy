@@ -53,7 +53,7 @@ private struct SnapshotFrame: View {
                     VStack(spacing: 0) {
                         CropCanvas(image: image,
                                    geometry: .constant(CropGeometry(imageSize: photo.imageSize, center: CGPoint(x: 0.5, y: 0.53))),
-                                   mode: .crop, suggestion: CGPoint(x: 0.47, y: 0.53), wallPreview: false)
+                                   suggestion: CGPoint(x: 0.47, y: 0.53), wallPreview: false)
                             .background(Color(nsColor: .underPageBackgroundColor))
                         Divider()
                         Filmstrip(current: id)

@@ -6,6 +6,8 @@ public enum Panel {
     public static let width = 3840
     public static let height = 2160
     public static let aspect = Double(width) / Double(height)
+    /// Smallest photo Inframy accepts: big enough for a full-resolution 16:9 crop (no upscaling).
+    public static let minimumSourceSize = CGSize(width: width, height: height)
 }
 
 /// A rect in 0…1 coordinates of the *oriented* image (EXIF orientation applied), origin top-left.
@@ -41,12 +43,10 @@ public struct NormalizedRect: Codable, Sendable, Equatable, Hashable {
     }
 }
 
-/// How a photo becomes a panel image.
+/// How a photo becomes a panel image: always a 16:9 slice Matt chose. (Fit-with-blur for portraits was removed:
+/// the TV is for showing off great landscape photos, not a digital picture frame.)
 public enum RenderMode: Codable, Sendable, Equatable, Hashable {
-    /// A 16:9 slice of the photo.
     case crop(NormalizedRect)
-    /// The whole photo, sharp, over a blurred and darkened copy of itself (for portraits and squares).
-    case fitWithBlur
 }
 
 public struct RenderSpec: Codable, Sendable, Equatable, Hashable {
@@ -66,7 +66,6 @@ public struct RenderSpec: Codable, Sendable, Equatable, Hashable {
         let m: String
         switch mode {
         case .crop(let r): m = String(format: "crop:%.6f,%.6f,%.6f,%.6f", r.x, r.y, r.width, r.height)
-        case .fitWithBlur: m = "fitblur"
         }
         return "\(m);sharpen=\(sharpen);q=\(jpegQuality)"
     }

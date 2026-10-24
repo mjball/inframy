@@ -5,13 +5,39 @@ import ImageIO
 /// A photo Matt has imported. Originals are never modified: Finder files are referenced by bookmark, and photos
 /// dragged from Photos (which only hands out copies) are copied into the library's `Originals` folder.
 public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable {
-    /// Matt's decision for this photo. Nothing is sent until it's `.crop` or `.fitWithBlur`: Inframy never
-    /// crops on its own.
+    /// Matt's decision for this photo. Nothing is sent until it's `.crop`: Inframy never crops on its own.
     public enum Choice: Codable, Sendable, Equatable, Hashable {
         case undecided
         case crop(NormalizedRect)
-        case fitWithBlur
         case skip
+
+        // Same JSON shape Swift synthesizes ({"crop":{"_0":{…}}}), but a removed mode such as the old
+        // "fitWithBlur" decodes as .undecided instead of failing the whole library.
+        private enum CodingKeys: String, CodingKey { case undecided, crop, skip }
+        private enum CropKeys: String, CodingKey { case _0 }
+        private struct Empty: Codable {}
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if c.contains(.crop) {
+                self = .crop(try c.nestedContainer(keyedBy: CropKeys.self, forKey: .crop).decode(NormalizedRect.self, forKey: ._0))
+            } else if c.contains(.skip) {
+                self = .skip
+            } else {
+                self = .undecided
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .undecided: try c.encode(Empty(), forKey: .undecided)
+            case .skip: try c.encode(Empty(), forKey: .skip)
+            case .crop(let rect):
+                var n = c.nestedContainer(keyedBy: CropKeys.self, forKey: .crop)
+                try n.encode(rect, forKey: ._0)
+            }
+        }
     }
 
     public enum Source: Codable, Sendable, Equatable, Hashable {
@@ -60,7 +86,6 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var renderSpec: RenderSpec? {
         switch choice {
         case .crop(let rect): return RenderSpec(mode: .crop(rect), sharpen: sharpen ?? false)
-        case .fitWithBlur: return RenderSpec(mode: .fitWithBlur, sharpen: sharpen ?? false)
         case .undecided, .skip: return nil
         }
     }
@@ -77,7 +102,7 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
         switch choice {
         case .undecided: return .needsCrop
         case .skip: return .skipped
-        case .crop, .fitWithBlur:
+        case .crop:
             guard tvContentID != nil else { return .readyToSend }
             return uploadedRenderKey == renderKey ? .onTV : .changedSinceUpload
         }
@@ -134,12 +159,34 @@ public struct LibraryStore: Sendable {
         case duplicate(of: UUID)
     }
 
+    public enum ImportError: Error, CustomStringConvertible {
+        /// Smaller than the panel: it would have to be upscaled, and the TV is for showing off great photos.
+        case tooSmall(name: String, width: Int, height: Int)
+
+        public var description: String {
+            switch self {
+            case .tooSmall(let name, let w, let h):
+                return "\(name) is \(w)×\(h). The TV needs at least \(Panel.width)×\(Panel.height) so photos aren't upscaled."
+            }
+        }
+    }
+
+    /// Whether a photo of `size` (oriented) is big enough for a full-resolution 16:9 crop.
+    public static func isLargeEnough(_ size: CGSize, minimum: CGSize = Panel.minimumSourceSize) -> Bool {
+        size.width >= minimum.width && size.height >= minimum.height
+    }
+
     /// Adds a file by reference (Finder). `copy: true` copies it into Originals instead (Photos drags, picker
     /// temp files). Skips photos already in the library (same SHA-256).
-    public func importPhoto(at url: URL, copy: Bool, existing: [LibraryPhoto]) throws -> ImportResult {
+    /// Refuses photos smaller than `minimumSize` (default: the panel, 3840×2160).
+    public func importPhoto(at url: URL, copy: Bool, existing: [LibraryPhoto],
+                            minimumSize: CGSize = Panel.minimumSourceSize) throws -> ImportResult {
         let sha = try ImagePipeline.sha256(of: url)
         if let dup = existing.first(where: { $0.sha256 == sha }) { return .duplicate(of: dup.id) }
         guard let size = Self.orientedPixelSize(of: url) else { throw ImagePipelineError.unreadable(url.lastPathComponent) }
+        guard Self.isLargeEnough(size, minimum: minimumSize) else {
+            throw ImportError.tooSmall(name: url.lastPathComponent, width: Int(size.width), height: Int(size.height))
+        }
 
         let id = UUID()
         let source: LibraryPhoto.Source

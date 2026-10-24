@@ -229,7 +229,7 @@ struct Recognize: AsyncParsableCommand {
                 print(String(format: "%@: same photo (score %.3f, %d ms), crop --rect %.4f,%.4f,%.4f,%.4f",
                              name, r.score, ms, c.x, c.y, c.width, c.height))
             default:
-                print(String(format: "%@: same photo, fit with blur (score %.3f, %d ms)", name, r.score, ms))
+                break
             }
         }
         if !found { print("Not on the TV (checked \(targets.count) item\(targets.count == 1 ? "" : "s")).") }
@@ -240,22 +240,20 @@ struct Upload: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Render photos to 3840×2160 and upload them with no mat.",
         discussion: """
-        Nothing is cropped automatically. Photos that are already 16:9 are only resized. Others need either
-        --rect (the 16:9 area to keep, normalized x,y,width,height from the top-left; see `suggest`) or --fit
-        (whole photo over a blurred fill).
+        Nothing is cropped automatically. Photos that are already 16:9 are only resized; others need --rect (the
+        16:9 area to keep, normalized x,y,width,height from the top-left; see `suggest`). Photos must be at least
+        3840×2160 and crops at least 3840 source pixels wide, so nothing is upscaled.
         """)
 
     @OptionGroup var tv: TVOptions
     @Argument(help: "Photo files.") var files: [String]
     @Option(help: "Area to keep: x,y,width,height in 0…1 from the top-left.", transform: parseRect)
     var rect: NormalizedRect?
-    @Flag(help: "Show the whole photo over a blurred, darkened copy instead of cropping.") var fit = false
     @Option(help: "Mat for the uploaded photo.") var matte = "none"
     @Flag(help: "Display the last uploaded photo now (switches the TV to art mode).") var show = false
     @Option(help: "Only render the JPEGs into this folder; don't upload.") var renderOnly: String?
 
     func validate() throws {
-        if rect != nil && fit { throw ValidationError("Use either --rect or --fit, not both.") }
         if rect != nil && files.count > 1 { throw ValidationError("--rect applies to one photo at a time.") }
     }
 
@@ -266,24 +264,26 @@ struct Upload: AsyncParsableCommand {
         for file in files {
             let url = URL(fileURLWithPath: file)
             let image = try pipeline.load(url)
-            let aspect = image.extent.width / image.extent.height
+            let size = image.extent.size
+            guard LibraryStore.isLargeEnough(size) else {
+                throw CLIError(LibraryStore.ImportError.tooSmall(name: file, width: Int(size.width), height: Int(size.height)).description)
+            }
+            let aspect = size.width / size.height
             let mode: RenderMode
-            if fit {
-                mode = .fitWithBlur
-            } else if let rect {
+            if let rect {
+                guard rect.width * size.width >= Double(Panel.width) - 0.5 else {
+                    throw CLIError("That crop is \(Int(rect.width * size.width)) pixels wide; it needs at least \(Panel.width) so it isn't upscaled.")
+                }
                 mode = .crop(rect)
             } else if abs(aspect - Panel.aspect) / Panel.aspect < 0.005 {
                 mode = .crop(.full)  // already 16:9: resize only
             } else {
                 throw CLIError("""
-                    \(file) is \(Int(image.extent.width))×\(Int(image.extent.height)), not 16:9. \
-                    Choose the area with --rect (try `inframy-cli suggest \(file)` for a starting point) or use --fit.
+                    \(file) is \(Int(size.width))×\(Int(size.height)), not 16:9. \
+                    Choose the area with --rect (try `inframy-cli suggest \(file)` for a starting point).
                     """)
             }
-            let (out, upscale) = try cache.render(url, spec: RenderSpec(mode: mode))
-            if let upscale, upscale > 1.05 {
-                note(String(format: "%@: upscaled %.1f× (fewer source pixels than the panel; may look soft)", file, upscale))
-            }
+            let (out, _) = try cache.render(url, spec: RenderSpec(mode: mode))
             rendered.append((file, out))
         }
 

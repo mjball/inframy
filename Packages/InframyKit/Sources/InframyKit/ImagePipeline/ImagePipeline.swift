@@ -65,22 +65,6 @@ public struct ImagePipeline: Sendable {
             let region = pixelRect(rect, in: image.extent)
             output = scaled(image.cropped(to: region).clampedToExtent(), from: region, to: panel)
             upscale = Double(Panel.width) / region.width
-        case .fitWithBlur:
-            let e = image.extent
-            let fit = min(panel.width / e.width, panel.height / e.height)
-            let fg = CGRect(x: (panel.width - e.width * fit) / 2, y: (panel.height - e.height * fit) / 2,
-                            width: e.width * fit, height: e.height * fit)
-            let fill = max(panel.width / e.width, panel.height / e.height)
-            let bgRegion = CGRect(x: e.midX - panel.width / fill / 2, y: e.midY - panel.height / fill / 2,
-                                  width: panel.width / fill, height: panel.height / fill)
-            let background = scaled(image.clampedToExtent(), from: bgRegion, to: panel)
-                .clampedToExtent()
-                .applyingGaussianBlur(sigma: 60)
-                .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -1.0])
-                .cropped(to: panel)
-            let foreground = scaled(image.clampedToExtent(), from: e, to: fg).cropped(to: fg)
-            output = foreground.composited(over: background)
-            upscale = 1 / fit
         }
         if spec.sharpen {
             output = output.applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 1.5, kCIInputIntensityKey: 0.4])
