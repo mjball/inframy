@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import ImageIO
 import InframyKit
 
 @main
@@ -11,7 +12,7 @@ struct InframyCLI: AsyncParsableCommand {
         Finds the TV on the local network automatically (Bonjour). Run `pair` once to remember it.
         Commands that change the TV: upload, rm, show, shuffle, wake.
         """,
-        subcommands: [Discover.self, Pair.self, Info.self, List.self, Thumbs.self, Suggest.self, Upload.self,
+        subcommands: [Discover.self, Pair.self, Info.self, List.self, Thumbs.self, Suggest.self, Recognize.self, Upload.self,
                       Remove.self, Show.self, Shuffle.self, Wake.self]
     )
 }
@@ -185,6 +186,53 @@ struct Suggest: AsyncParsableCommand {
             print("Center: none found; using the image center")
         }
         print(String(format: "--rect %.4f,%.4f,%.4f,%.4f", frame.x, frame.y, frame.width, frame.height))
+    }
+}
+
+struct Recognize: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Check whether a photo is already on the TV, and recover its crop (read-only).")
+
+    @OptionGroup var tv: TVOptions
+    @Argument(help: "Photo file.") var file: String
+    @Option(help: "Compare against this image file instead of the TV's thumbnails (offline testing).") var against: String?
+
+    func run() async throws {
+        guard let original = LibraryStore.thumbnail(of: URL(fileURLWithPath: file), maxPixel: 512) else {
+            throw CLIError("Can't read \(file).")
+        }
+        var targets: [String: CGImage] = [:]
+        if let against {
+            guard let img = LibraryStore.thumbnail(of: URL(fileURLWithPath: against), maxPixel: 320) else {
+                throw CLIError("Can't read \(against).")
+            }
+            targets[URL(fileURLWithPath: against).lastPathComponent] = img
+        } else {
+            let (client, _) = try await tv.client()
+            for item in try await client.contentList() {
+                if let data = try? await client.thumbnail(item.contentID),
+                   let src = CGImageSourceCreateWithData(data as CFData, nil),
+                   let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+                    targets[item.contentID] = img
+                }
+            }
+            await client.connection.close()
+        }
+        var found = false
+        for (name, image) in targets.sorted(by: { $0.key < $1.key }) {
+            let start = Date()
+            guard let r = SubImageMatcher.match(original: original, tvImage: image) else { continue }
+            found = true
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            switch r.choice {
+            case .crop(let c):
+                print(String(format: "%@: same photo (score %.3f, %d ms), crop --rect %.4f,%.4f,%.4f,%.4f",
+                             name, r.score, ms, c.x, c.y, c.width, c.height))
+            default:
+                print(String(format: "%@: same photo, fit with blur (score %.3f, %d ms)", name, r.score, ms))
+            }
+        }
+        if !found { print("Not on the TV (checked \(targets.count) item\(targets.count == 1 ? "" : "s")).") }
     }
 }
 

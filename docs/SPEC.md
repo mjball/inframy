@@ -97,16 +97,19 @@ Core Image / ImageIO, in `InframyKit`:
 Persistence: SwiftData or SQLite (GRDB), whichever the implementer prefers; keep the schema simple.
 
 - **Photo:** id, source (security-scoped bookmark for files, or PhotoKit `localIdentifier`), source SHA-256,
-  crop spec, render hash, perceptual hash (64-bit dHash of the render), status.
+  crop spec, render hash, status.
 - **TVItem:** TV content id (e.g. `MY_F0096` / `MY-F0020`; format varies by firmware), first seen, linked Photo id
-  (nullable), origin (`inframy` / `adopted` / `unknown`), thumbnail cache path, thumbnail dHash.
+  (nullable), origin (`inframy` / `recognized` / `unknown`), thumbnail cache path.
 
 Dedup rules:
 
 - Importing the same source twice (same SHA-256 or same PhotoKit id) → no new Photo.
 - Before upload, if a TVItem already links to this Photo with the same render hash → skip.
-- **Adoption:** on refresh, download thumbnails for unknown `MY-` items, compute dHash, compare to library
-  renders. Close match (small Hamming distance, tune on real data) → propose linking. Never auto-delete unknowns.
+- **Recognition (was "adoption"):** on import and on every TV refresh, each TV item no library photo accounts for is
+  checked against photos not yet on the TV as a *sub-image* of the uncropped original (multi-scale normalized
+  cross-correlation; `SubImageMatcher`). A match (score ≥ 0.9) marks the photo "Already on your TV" and recovers
+  the crop from the TV copy. It only changes Inframy's records, so it's automatic; "Not the Same Photo" undoes it and
+  never pairs the two again. Never auto-delete unknowns.
 
 ## 7. Sync engine and pool rotation
 
@@ -201,8 +204,9 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 
 ### Phase 3: Library smarts
 
-- [x] Ledger, dedup, adoption of pre-existing TV images (§6): dHash of TV thumbnails vs library crops, proposals
-      reviewed side by side; nothing links or deletes automatically.
+- [x] Ledger, dedup, recognition of pre-existing TV images (§6): sub-image matching against uncropped originals,
+      automatic with "Not the Same Photo" to undo; crop recovered from the TV copy. Nothing is ever deleted
+      automatically.
 - [x] Photos album sync ("Frame" album, configurable in Settings; off until enabled). New album photos arrive
       as "needs crop"; edited versions are used.
 - [x] Portrait modes (blur fill, skip): shipped in Phase 2's crop editor.
