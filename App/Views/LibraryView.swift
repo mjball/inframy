@@ -1,4 +1,5 @@
 import InframyKit
+import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -6,8 +7,16 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var dropTargeted = false
     @State private var selection: Set<UUID> = []
+    @State private var quickLookURL: URL?
+    @State private var quickLookItems: [URL] = []
+    @FocusState private var gridFocused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 18)]
+
+    /// Every photo in the order the sections show them (for arrow keys).
+    private var ordered: [LibraryPhoto] {
+        photos(.needsCrop) + model.readyToSend + photos(.onTV) + photos(.skipped)
+    }
 
     var body: some View {
         Group {
@@ -24,6 +33,17 @@ struct LibraryView: View {
                     }
                     .padding(24)
                 }
+                // Keyboard, like Finder: Space = Quick Look, Return = open in the crop editor, arrows = move.
+                .focusable()
+                .focused($gridFocused)
+                .focusEffectDisabled()
+                .onKeyPress(.space) { quickLook(); return .handled }
+                .onKeyPress(.return) { openSelected(); return .handled }
+                .onKeyPress(.leftArrow) { move(-1); return .handled }
+                .onKeyPress(.rightArrow) { move(1); return .handled }
+                .onKeyPress(.upArrow) { move(-1); return .handled }
+                .onKeyPress(.downArrow) { move(1); return .handled }
+                .quickLookPreview($quickLookURL, in: quickLookItems)
             }
         }
         .navigationTitle("Library")
@@ -74,11 +94,32 @@ struct LibraryView: View {
     }
 
     private func toggle(_ id: UUID) {
+        gridFocused = true
         if NSEvent.modifierFlags.contains(.command) {
             if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
         } else {
             selection = [id]
         }
+    }
+
+    private func quickLook() {
+        let urls = ordered.filter { selection.contains($0.id) }.compactMap { model.url(for: $0) }
+        guard let first = urls.first else { return }
+        quickLookItems = urls
+        quickLookURL = first
+    }
+
+    private func openSelected() {
+        if let photo = ordered.first(where: { selection.contains($0.id) }) { model.editingPhotoID = photo.id }
+    }
+
+    private func move(_ step: Int) {
+        let list = ordered
+        guard !list.isEmpty else { return }
+        let current = list.firstIndex { selection.contains($0.id) }
+        let next = current.map { min(max($0 + step, 0), list.count - 1) } ?? 0
+        selection = [list[next].id]
+        if quickLookURL != nil { quickLook() }   // Quick Look follows the selection while it's open
     }
 
     @ViewBuilder

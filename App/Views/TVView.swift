@@ -1,4 +1,5 @@
 import InframyKit
+import QuickLook
 import SwiftUI
 
 /// What's actually on the TV (My Photos), with thumbnails from the TV itself.
@@ -6,6 +7,9 @@ struct TVView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Set<String> = []
     @State private var confirmingDelete = false
+    @State private var quickLookURL: URL?
+    @State private var quickLookItems: [URL] = []
+    @FocusState private var gridFocused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 18)]
 
@@ -68,6 +72,7 @@ struct TVView: View {
                 ForEach(model.tvItems, id: \.contentID) { item in
                     TVTile(item: item, selected: selection.contains(item.contentID),
                            isCurrent: model.slideshow?.currentContentID == item.contentID)
+                        .onTapGesture(count: 2) { open(item.contentID) }
                         .onTapGesture { toggle(item.contentID) }
                         .contextMenu {
                             Button("Show Now") { Task { await model.show(item.contentID) } }
@@ -85,9 +90,42 @@ struct TVView: View {
             .padding(24)
           }
         }
+        .focusable()
+        .focused($gridFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.space) { quickLook(); return .handled }
+        .onKeyPress(.return) { if let id = orderedSelection.first { open(id) }; return .handled }
+        .onKeyPress(.leftArrow) { move(-1); return .handled }
+        .onKeyPress(.rightArrow) { move(1); return .handled }
+        .onKeyPress(.upArrow) { move(-1); return .handled }
+        .onKeyPress(.downArrow) { move(1); return .handled }
+        .quickLookPreview($quickLookURL, in: quickLookItems)
+    }
+
+    private var orderedSelection: [String] { model.tvItems.map(\.contentID).filter { selection.contains($0) } }
+
+    /// Return / double-click: the crop editor for the library photo behind this TV item, if there is one.
+    private func open(_ id: String) {
+        if let photo = model.photo(forTVItem: id) { model.editingPhotoID = photo.id }
+    }
+
+    private func quickLook() {
+        let urls = orderedSelection.compactMap { QuickLookFiles.url(forTVItem: $0, model: model) }
+        guard let first = urls.first else { return }
+        quickLookItems = urls
+        quickLookURL = first
+    }
+
+    private func move(_ step: Int) {
+        let ids = model.tvItems.map(\.contentID)
+        guard !ids.isEmpty else { return }
+        let current = ids.firstIndex { selection.contains($0) }
+        selection = [ids[current.map { min(max($0 + step, 0), ids.count - 1) } ?? 0]]
+        if quickLookURL != nil { quickLook() }
     }
 
     private func toggle(_ id: String) {
+        gridFocused = true
         if NSEvent.modifierFlags.contains(.command) {
             if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
         } else {

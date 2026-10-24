@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage
 import InframyKit
+import QuickLook
 import SwiftUI
 
 /// The crop editor (SPEC §4). The 16:9 frame never changes shape; the photo moves and scales under it.
@@ -13,6 +14,7 @@ struct CropEditorView: View {
     @State private var geometry: CropGeometry?
     @State private var suggestion: CGPoint?
     @State private var showWall = false
+    @State private var quickLookURL: URL?
     @FocusState private var focused: Bool
 
     private var photo: LibraryPhoto? { model.photos.first { $0.id == photoID } }
@@ -47,9 +49,15 @@ struct CropEditorView: View {
             return .handled
         }
         .onKeyPress(.escape) { model.editingPhotoID = nil; return .handled }
-        .onKeyPress(.space) { showWall.toggle(); return .handled }
-        .onKeyPress(characters: .init(charactersIn: "rRsS+=-_")) { press in
+        .onKeyPress(.space) {
+            // Space is Quick Look everywhere in Inframy; P toggles the "as on the wall" preview.
+            quickLookURL = photo.flatMap { model.url(for: $0) }
+            return .handled
+        }
+        .quickLookPreview($quickLookURL)
+        .onKeyPress(characters: .init(charactersIn: "rRsSpP+=-_")) { press in
             switch press.characters {
+            case "p", "P": showWall.toggle()
             case "r", "R": reset()
             case "s", "S": skip()
             case "+", "=": geometry?.zoom(by: 1.15)
