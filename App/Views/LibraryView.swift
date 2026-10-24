@@ -313,27 +313,28 @@ struct TooSmallNote: View {
 
     var body: some View {
         let n = model.uncoveredSkipped.count
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top) {
-                    Text("These are in \u{201C}\(model.albumTitle ?? "the album")\u{201D} but have fewer pixels than the TV, so they'd look soft. If they're reduced copies, Inframy can look for the full-size originals in your library.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Find Full-Size Originals…") {
-                        showingFinder = true
-                        if model.originalMatches.isEmpty && !model.isFindingOriginals { model.findOriginals() }
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            // Always visible: what's wrong, and the fix.
+            HStack(alignment: .center, spacing: 12) {
+                Label("\(n) photo\(n == 1 ? "" : "s") in \u{201C}\(model.albumTitle ?? "the album")\u{201D} \(n == 1 ? "is" : "are") too small for the TV (under \(Panel.width)×\(Panel.height))",
+                      systemImage: "photo.badge.exclamationmark")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Find Full-Size Originals…") {
+                    showingFinder = true
+                    if model.originalMatches.isEmpty && !model.isFindingOriginals { model.findOriginals() }
                 }
+                .help("Look in your Photos library for the full-size photos these were cropped or shrunk from")
+            }
+            DisclosureGroup(isExpanded: $expanded) {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                     ForEach(model.uncoveredSkipped) { SkippedTile(photo: $0) }
                 }
+                .padding(.top, 6)
+            } label: {
+                Text(expanded ? "Hide photos" : "Show photos").font(.callout)
             }
-            .padding(.top, 8)
-        } label: {
-            Label("\(n) photo\(n == 1 ? "" : "s") in \u{201C}\(model.albumTitle ?? "the album")\u{201D} \(n == 1 ? "is" : "are") too small for the TV (under \(Panel.width)×\(Panel.height))",
-                  systemImage: "photo.badge.exclamationmark")
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
