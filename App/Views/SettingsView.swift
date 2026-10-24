@@ -101,10 +101,16 @@ struct AlbumPicker: View {
                     Text(model.albumTitle ?? "Current album").tag(id)   // shown while the list loads
                 }
                 ForEach(albums) { album in
-                    Text("\(album.title)  (\(album.photoCount))").tag(album.id)
+                    Text(album.isShared ? "\(album.title)  (\(album.photoCount), shared album)" : "\(album.title)  (\(album.photoCount))")
+                        .tag(album.id)
                 }
             }
             .task { await load() }
+            if let id = model.albumID, albums.first(where: { $0.id == id })?.isShared == true {
+                Label("Shared albums only keep reduced copies (2048 px), which are too small for the TV. Use a regular album.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
             if model.albumID != nil {
                 Picker("When a photo is removed from the album", selection: $removal) {
                     Text("Remove it from the TV").tag("removeFromTV")
