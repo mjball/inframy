@@ -50,8 +50,8 @@ What each phase added:
 6. **Removing from the Library doesn't touch the TV**, and deleting from the TV keeps the Library copy.
    *Assumed: they're separate actions.*
 7. ~~Mac: desktop or laptop?~~ Moot: no scheduled rotation any more.
-8. **Album sync is off by default.** Turning it on (Settings → Photos) triggers the Photos permission prompt.
-   *Assumed: album name "Frame", import only (photos removed from the album stay in the library and on the TV).*
+8. **Album sync** (reworked 2026-10-24): choose the album in Settings → Photos. It's live, picks up edits, and
+   photos removed from the album leave the TV too. *Assumed default: remove from the TV* (switchable to "keep").
 9. **Recognizing photos already on the TV** is automatic: a photo counts as the same when the TV copy matches a
    region of the original with correlation ≥ 0.9 (real match: 0.99; unrelated: ≤ 0.6). *Assumed: fine.* Undo with
    right-click → Not the Same Photo.
