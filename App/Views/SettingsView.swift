@@ -24,7 +24,6 @@ enum Prefs {
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @AppStorage(Prefs.shuffleMinutes) private var shuffleMinutes = 15
     @AppStorage(Prefs.keepShuffleOn) private var keepShuffleOn = true
     @State private var openAtLogin = LoginItem.isEnabled
 
@@ -34,11 +33,8 @@ struct SettingsView: View {
                 RemovalSetting()
             }
             Section("TV") {
-                Picker("Shuffle interval when Inframy turns shuffle on", selection: $shuffleMinutes) {
-                    ForEach(ShuffleControl.intervals, id: \.0) { Text($0.1).tag($0.0) }
-                }
                 Toggle("Keep the slideshow on", isOn: $keepShuffleOn)
-                Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do). The TV's shuffle is what rotates your photos.")
+                Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do), at the interval it last had. Choose the interval from the shuffle menu in On the TV.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let tv = SavedTV.load() {
                     LabeledContent("Paired TV", value: "\(tv.name.replacingOccurrences(of: "[TV] ", with: "")) · \(tv.host)")

@@ -34,7 +34,11 @@ final class AppModel {
     var photos: [LibraryPhoto] = []
     var tvItems: [ContentItem] = []
     var tvThumbnails: [String: NSImage] = [:]
-    var slideshow: SlideshowStatus?
+    /// The TV's slideshow. Its interval is the one setting: whatever the TV is using (set from Inframy's
+    /// shuffle menu or the TV's remote) is what Inframy uses if it has to turn shuffle back on.
+    var slideshow: SlideshowStatus? {
+        didSet { if let minutes = slideshow?.intervalMinutes { shuffleMinutes = minutes } }
+    }
     var jobs: [SendJob] = []
     var section: Section = .library
     /// Photo open in the crop editor.
@@ -49,7 +53,7 @@ final class AppModel {
     @ObservationIgnored private var libraryThumbnails: [UUID: NSImage] = [:]
     @ObservationIgnored private var isSending = false
 
-    /// Preferred slideshow interval when Inframy turns shuffle on.
+    /// Interval Inframy uses when it turns shuffle on: the last one the TV reported.
     var shuffleMinutes: Int {
         get { UserDefaults.standard.object(forKey: Prefs.shuffleMinutes) as? Int ?? 15 }
         set { UserDefaults.standard.set(newValue, forKey: Prefs.shuffleMinutes) }
