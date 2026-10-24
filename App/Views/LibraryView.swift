@@ -20,7 +20,7 @@ struct LibraryView: View {
                         section("Ready to send", model.readyToSend, hint: nil)
                         section("On the TV", photos(.onTV), hint: nil)
                         section("Skipped", photos(.skipped), hint: nil)
-                        if !model.albumSkipped.isEmpty { TooSmallNote() }
+                        if !model.uncoveredSkipped.isEmpty { TooSmallNote() }
                     }
                     .padding(24)
                 }
@@ -308,16 +308,24 @@ struct PhotoDropTarget: ViewModifier {
 struct TooSmallNote: View {
     @Environment(AppModel.self) private var model
     @State private var expanded = false
+    @State private var showingFinder = false
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 12)]
 
     var body: some View {
-        let n = model.albumSkipped.count
+        let n = model.uncoveredSkipped.count
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("These are in \u{201C}\(model.albumTitle ?? "the album")\u{201D} but have fewer pixels than the TV, so they'd look soft. Replace them in the album with full-size versions, or take them out.")
-                    .font(.callout).foregroundStyle(.secondary)
+                HStack(alignment: .top) {
+                    Text("These are in \u{201C}\(model.albumTitle ?? "the album")\u{201D} but have fewer pixels than the TV, so they'd look soft. If they're reduced copies, Inframy can look for the full-size originals in your library.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Find Full-Size Originals…") {
+                        showingFinder = true
+                        if model.originalMatches.isEmpty && !model.isFindingOriginals { model.findOriginals() }
+                    }
+                }
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                    ForEach(model.albumSkipped) { SkippedTile(photo: $0) }
+                    ForEach(model.uncoveredSkipped) { SkippedTile(photo: $0) }
                 }
             }
             .padding(.top, 8)
@@ -329,6 +337,105 @@ struct TooSmallNote: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
+        .sheet(isPresented: $showingFinder) { OriginalsSheet().frame(width: 720, height: 560) }
+    }
+}
+
+/// Finding and reviewing full-size originals for reduced copies.
+struct OriginalsSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Full-size originals").font(.title3.weight(.semibold))
+                Text("Each reduced copy from the album is matched to the photo it was cropped from. Using the original keeps your old crop and doesn't change anything in Photos.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            .padding(16)
+            Divider()
+            if model.isFindingOriginals {
+                VStack(spacing: 10) {
+                    if let p = model.originalProgress, p.total > 0 {
+                        ProgressView(value: Double(p.done), total: Double(p.total))
+                        Text("\(p.phase): \(p.done.formatted()) of \(p.total.formatted())").font(.callout).foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                        Text(model.originalProgress?.phase ?? "Starting").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Text("The first scan reads a small preview of every photo in your library; later scans are quick.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.originalMatches.isEmpty {
+                ContentUnavailableView("No originals found", systemImage: "magnifyingglass",
+                                       description: Text("None of the remaining copies matched a full-size photo in your library."))
+            } else {
+                List(model.originalMatches) { match in
+                    HStack(spacing: 14) {
+                        AssetThumb(assetID: match.copyAssetID, caption: "Copy in album")
+                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                        AssetThumb(assetID: match.originalAssetID, caption: match.originalName, crop: match.crop)
+                        Spacer()
+                        Button("Use Original") { Task { await model.useOriginal(match) } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            Divider()
+            HStack {
+                if model.isFindingOriginals {
+                    Button("Stop") { model.cancelFindingOriginals() }
+                } else {
+                    Button("Search Again") { model.findOriginals() }
+                }
+                Spacer()
+                let n = model.originalMatches.count
+                if n > 1 && !model.isFindingOriginals {
+                    Button("Use All \(n)") { Task { await model.useAllOriginals() } }
+                }
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
+    }
+}
+
+/// A Photos asset thumbnail, optionally outlining a crop.
+struct AssetThumb: View {
+    let assetID: String
+    let caption: String
+    var crop: NormalizedRect? = nil
+    @State private var image: NSImage?
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Rectangle().fill(.quaternary)
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit()
+                        .overlay {
+                            if let crop {
+                                GeometryReader { geo in
+                                    Rectangle()
+                                        .strokeBorder(Color.yellow, lineWidth: 2)
+                                        .frame(width: geo.size.width * crop.width, height: geo.size.height * crop.height)
+                                        .offset(x: geo.size.width * crop.x, y: geo.size.height * crop.y)
+                                }
+                            }
+                        }
+                }
+            }
+            .frame(width: 220, height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .task(id: assetID) {
+            if let cg = await PhotosAlbumSync.thumbnail(assetID: assetID, maxPixel: 440) { image = NSImage(cgImage: cg, size: .zero) }
+        }
     }
 }
 

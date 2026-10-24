@@ -177,6 +177,65 @@ final class AppModel {
     /// Album photos too small for the TV. Shown quietly in the Library; not retried until edited in Photos.
     var albumSkipped: [PhotosAlbumSync.SkippedPhoto] = []
     private var skippedFile: URL { store.directory.appendingPathComponent("album-skipped.json") }
+    /// Skipped photos still waiting for a fix (not stood in for by a full-size original).
+    var uncoveredSkipped: [PhotosAlbumSync.SkippedPhoto] { albumSkipped.filter { $0.coveredBy == nil } }
+
+    // Finding full-size originals for reduced copies in the album.
+    var originalMatches: [OriginalFinder.Match] = []
+    var originalProgress: OriginalFinder.Progress?
+    var isFindingOriginals = false
+    @ObservationIgnored private var findTask: Task<Void, Never>?
+
+    func findOriginals() {
+        guard !isFindingOriginals else { return }
+        let ids = uncoveredSkipped.map(\.assetID)
+        let cache = store.directory.appendingPathComponent("featureprints.plist")
+        isFindingOriginals = true
+        originalMatches = []
+        originalProgress = OriginalFinder.Progress(phase: "Starting", done: 0, total: 0)
+        findTask = Task {
+            let matches = await Task.detached(priority: .userInitiated) {
+                await OriginalFinder.find(copies: ids, cacheURL: cache) { p in
+                    Task { @MainActor in self.originalProgress = p }
+                }
+            }.value
+            originalMatches = matches
+            isFindingOriginals = false
+        }
+    }
+
+    func cancelFindingOriginals() {
+        findTask?.cancel()
+        isFindingOriginals = false
+    }
+
+    /// Uses the full-size original in place of the album's reduced copy, with the copy's crop.
+    func useOriginal(_ match: OriginalFinder.Match) async {
+        guard let albumID else { return }
+        do {
+            let result = try await PhotosAlbumSync.useOriginal(match, albumID: albumID, store: store,
+                                                               library: photos + pendingRemovals)
+            let coveredBy: UUID
+            switch result {
+            case .imported(let photo):
+                photos.append(photo)
+                coveredBy = photo.id
+            case .duplicate(let existing):
+                coveredBy = existing   // the original is already in the library
+            }
+            if let i = albumSkipped.firstIndex(where: { $0.assetID == match.copyAssetID }) { albumSkipped[i].coveredBy = coveredBy }
+            originalMatches.removeAll { $0 == match }
+            saveLibrary()
+            saveSkipped()
+            await recognizeTVPhotos()
+        } catch {
+            lastError = "Couldn't use the original: \(error)"
+        }
+    }
+
+    func useAllOriginals() async {
+        for match in originalMatches { await useOriginal(match) }
+    }
 
     private func loadSkipped() {
         if let data = try? Data(contentsOf: skippedFile),

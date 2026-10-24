@@ -66,6 +66,8 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     public var photosLocalIdentifier: String? = nil
     /// The album it was synced from (PhotoKit collection id). Removals only apply to photos from the current album.
     public var photosAlbumID: String? = nil
+    /// When the album holds a reduced copy, the full-size original Inframy found and uses instead.
+    public var photosOriginalID: String? = nil
     /// The asset's modification date when last imported; a newer one means it was edited in Photos.
     public var photosModifiedAt: Date? = nil
     /// Removed from the album: waiting for the TV (to delete its copy) before leaving the library. Hidden in the UI.

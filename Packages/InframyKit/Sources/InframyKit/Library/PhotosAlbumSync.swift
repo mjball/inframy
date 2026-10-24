@@ -40,6 +40,8 @@ public enum PhotosAlbumSync {
         public let modified: Date?
         /// When it was taken (or added to Photos): a readable label when the file name is just an id.
         public var created: Date? = nil
+        /// Set when a full-size original stands in for this copy (or it's already in the library): not "too small" any more.
+        public var coveredBy: UUID? = nil
         public var id: String { assetID }
 
         /// The file name, unless it's a meaningless id (files saved into Photos from elsewhere often are).
@@ -203,7 +205,8 @@ public enum PhotosAlbumSync {
 
         // Earlier imports were named after Photos' export files ("…-FullSizeRender"): use the real names.
         for i in known.indices {
-            guard known[i].photosAlbumID == albumID, let id = known[i].photosLocalIdentifier, let asset = assets[id] else { continue }
+            guard known[i].photosAlbumID == albumID, known[i].photosOriginalID == nil,
+                  let id = known[i].photosLocalIdentifier, let asset = assets[id] else { continue }
             let name = displayName(of: asset)
             if known[i].displayName != name {
                 known[i].displayName = name
@@ -214,6 +217,12 @@ public enum PhotosAlbumSync {
 
         for id in diff.edited {
             guard let asset = assets[id], let i = known.firstIndex(where: { $0.photosLocalIdentifier == id }) else { continue }
+            // A photo using a found full-size original keeps it; the reduced copy's edits don't apply.
+            if known[i].photosOriginalID != nil {
+                known[i].photosModifiedAt = asset.modificationDate
+                result.updated.append(known[i])
+                continue
+            }
             do {
                 let file = try await exportBestImage(asset, to: temp)
                 var photo = try store.replaceOriginal(of: known[i], with: file) ?? known[i]
