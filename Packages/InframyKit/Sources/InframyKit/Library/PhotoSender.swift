@@ -47,7 +47,6 @@ public struct PhotoSender: Sendable {
         }
         updated.tvContentID = contentID
         updated.uploadedRenderKey = key
-        updated.onTVSince = Date()
         progress(.done(contentID: contentID))
         return updated
     }

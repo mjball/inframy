@@ -19,9 +19,7 @@ struct MenuBarContent: View {
             openWindow(id: "main")
         }
         Button("Send Ready Photos (\(model.readyToSend.count))") { let ids = model.readyToSend.map(\.id); model.send(ids) }
-            .disabled(model.readyToSend.isEmpty || !model.tvState.isConnected)
-        Button("Rotate Now") { Task { await model.rotate(userInitiated: true) } }
-            .disabled(!UserDefaults.standard.bool(forKey: Prefs.rotationEnabled) || model.isRotating)
+            .disabled(model.readyToSend.isEmpty)
         Button("Turn Shuffle On") { Task { await model.setShuffle(on: true) } }
             .disabled(!model.tvState.isConnected || model.slideshow?.isOn == true)
         Divider()

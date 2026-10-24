@@ -36,7 +36,8 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
   so it can't reach the internet (no ads, autoplaying channels, or firmware updates). Consequences: SmartThings
   can't reach it, its clock may drift, and SSDP discovery stops working (Bonjour still does).
 - **Storage is small.** One 2020 LS03T owner reported ~259 MB free after installing a few apps. Plan for the
-  TV holding tens of photos, not thousands (see pool rotation, §7).
+  TV holding hundreds of photos, not thousands. Inframy uploads everything Matt sends and lets the TV shuffle;
+  when the TV is full, it says so (§7).
 - **Reachability:** TV must be on, in Art Mode, or in standby with network standby enabled. Same subnet as the Mac.
 - **Slideshow reliability:** 2020 owners report the art slideshow sometimes stops; Inframy should re-assert it.
 
@@ -111,21 +112,19 @@ Dedup rules:
   the crop from the TV copy. It only changes Inframy's records, so it's automatic; "Not the Same Photo" undoes it and
   never pairs the two again. Never auto-delete unknowns.
 
-## 7. Sync engine and pool rotation
+## 7. Sending and the TV's own shuffle
 
-- **Desired state** = set of Photos marked "on TV". **Actual state** = TV content list (personal category only).
-- Diff → queue of uploads and deletes, executed serially with retries and backoff. The UI shows the queue.
-- After uploads, ensure matte is none and shuffle is on for the personal-photos category.
-- **Pool rotation (Phase 4):** the library can be much larger than the TV can hold. Setting: pool size N
-  (e.g. 60). On a schedule (e.g. nightly, when the Mac and TV are both reachable), swap out a fraction of the pool
-  for photos that have been off the TV longest. The TV's own shuffle handles minute-to-minute changes.
-- **Storage full:** there's no known storage query. Treat upload failures that look like capacity errors as
-  "full": shrink the pool and report it.
-- **Background agent:** a menu bar item / login item that runs rotation and re-asserts shuffle. Wake the TV
-  with Wake-on-LAN when needed.
-
-Open question for Matt (affects rotation): is the Mac a desktop that stays on at home, or a laptop?
-If a laptop, use a larger pool and rotate opportunistically when on the home network.
+- **The TV rotates the photos, not Inframy (Matt, 2026-10-24).** Every photo Matt sends stays on the TV, and the TV's
+  shuffle shows them. No pool, no scheduled swaps. (Pool rotation was built in Phase 4 and removed.)
+- **Event-driven, not timed.** The Frame leaves the network while its screen sleeps (motion sensor). Inframy checks
+  for it every 20 s (REST) and, when it appears, sends anything queued and checks the slideshow. Photos sent while it
+  sleeps wait in the queue ("Waiting for the TV to wake up"). Wake-on-LAN is a manual menu item only: from full
+  power-off it wakes the TV into the last HDMI input, which is no use (PROTOCOL.md).
+- **Keep the slideshow on:** whenever the TV is awake (and every 15 min while it stays awake), turn My Photos
+  shuffle back on if it stopped, with 2+ photos only (a 1-photo shuffle wedges this TV).
+- **Storage full:** there's no storage query. If the TV refuses an upload, Inframy stops the queue and tells Matt the
+  TV is probably full and to delete some photos on the On the TV screen.
+- **Menu bar item / login item:** keeps Inframy running so queued photos go out when the TV wakes.
 
 ## 8. TV client (`InframyKit/TVClient`)
 
@@ -144,7 +143,7 @@ See `docs/PROTOCOL.md` for the wire format. Design:
   has the REST URL); SSDP M-SEARCH as a fallback. Then `GET http://<ip>:8001/api/v2/` and keep
   `FrameTVSupport == "true"`. Needs `NSBonjourServices` (`_samsungmsf._tcp`) in Info.plist.
   Remember the TV by its stable device `id` / MAC, not its IP; on connection failure, re-discover and update the IP.
-  If the TV is asleep, send Wake-on-LAN to the saved MAC, then re-discover.
+  If the TV is asleep, wait for it to reappear (it leaves the network while the screen sleeps).
 - Wake-on-LAN helper (needs the TV's MAC; get it from the REST device info at `http://<ip>:8001/api/v2/`).
 
 ## 9. macOS specifics
@@ -211,14 +210,13 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
       as "needs crop"; edited versions are used.
 - [x] ~~Portrait modes~~ dropped: landscape only, minimum 3840×2160, no upscaling (Matt, 2026-10-24).
 
-### Phase 4: Scale
+### Phase 4: Upkeep
 
-- [x] Pool rotation (`RotationPlanner`/`Rotator`): pool size, interval and swap % in Settings; uploads before
-      removals; only Inframy/linked photos come down; pinned photos stay; a TV-side upload failure shrinks the pool
-      ("probably full"). Off until enabled.
 - [x] Menu bar agent (`MenuBarExtra`) + Open at login (`SMAppService`).
-- [x] Wake-on-LAN (menu, CLI `wake`; optional before rotation, off by default).
-- [x] Shuffle re-assertion every 15 min while running ("Keep the slideshow on", on by default).
+- [x] Event-driven: queued sends and the slideshow check run when the TV reappears; nothing on a timer.
+- [x] Clear "TV is probably full" handling.
+- [x] Wake-on-LAN as a manual menu item / CLI `wake` only.
+- [x] ~~Pool rotation~~ removed (Matt, 2026-10-24): the TV's shuffle rotates; Inframy uploads everything.
 - [ ] Verified on the real TV (pending Matt).
 
 ## 11. Risks
