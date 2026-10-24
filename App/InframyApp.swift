@@ -28,8 +28,9 @@ struct InframyApp: App {
         }
         .commands {
             CommandGroup(after: .newItem) {
-                Button("Import Photos…") { NotificationCenter.default.post(name: .importPhotos, object: nil) }
-                    .keyboardShortcut("o")
+                Button("Sync Photos Album Now") { Task { await model.syncAlbum(userInitiated: true) } }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(model.albumID == nil)
             }
             CommandMenu("TV") {
                 Button("Reconnect") { Task { await model.connect() } }
@@ -44,8 +45,4 @@ struct InframyApp: App {
             }
         }
     }
-}
-
-extension Notification.Name {
-    static let importPhotos = Notification.Name("InframyImportPhotos")
 }

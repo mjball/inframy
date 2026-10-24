@@ -174,6 +174,22 @@ final class AppModel {
     var lastAlbumSync: Date? = UserDefaults.standard.object(forKey: Prefs.lastAlbumSync) as? Date
     /// Photos that left the album but still have a copy on the TV; removed once the TV is awake.
     var pendingRemovals: [LibraryPhoto] = []
+    /// The user's Photos albums (for the album menu and first-run setup).
+    var albums: [PhotosAlbumSync.Album] = []
+    var photosAccessGranted = PhotosAlbumSync.isAuthorized
+
+    /// Loads the album list. `requestAccess` shows the Photos permission prompt if it hasn't been answered.
+    func loadAlbums(requestAccess: Bool) async {
+        guard requestAccess || PhotosAlbumSync.isAuthorized else { photosAccessGranted = false; return }
+        if let list = try? await PhotosAlbumSync.albums() {
+            albums = list
+            photosAccessGranted = true
+            startWatchingAlbum()
+        } else {
+            photosAccessGranted = false
+        }
+    }
+
     /// Album photos too small for the TV. Shown quietly in the Library; not retried until edited in Photos.
     var albumSkipped: [PhotosAlbumSync.SkippedPhoto] = []
     private var skippedFile: URL { store.directory.appendingPathComponent("album-skipped.json") }

@@ -6,14 +6,14 @@
 
 A Mac app for putting your own photos on a Samsung **The Frame** TV, without SmartThings.
 
-Drop in photos from Finder or Photos, pick the 16:9 area for each one, and Inframy does the rest:
+Point it at an album in Photos, pick the 16:9 area for each photo, and Inframy does the rest:
 it resizes to 3840×2160, uploads straight to the TV over your local network with **no mat**, keeps the TV's
 shuffle pointed at your photos, skips duplicates, and shows you everything that's already on the TV so you can remove it.
 
 ## Status
 
 Alpha. The app (library, crop editor, send queue, TV grid, menu bar item) and the command-line tool are
-built; the core was verified against a 2020 Frame. See [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) for what's
+built; the core was verified against a 2020 Frame. See [`docs/SPEC.md`](docs/SPEC.md) §12 for what's
 still to check. See [`docs/SPEC.md`](docs/SPEC.md) for the plan and
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for what's known about the TV's art-mode API.
 
