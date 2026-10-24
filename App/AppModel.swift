@@ -77,6 +77,7 @@ final class AppModel {
         let loaded = store.load()
         photos = loaded.filter { $0.pendingRemoval != true }
         pendingRemovals = loaded.filter { $0.pendingRemoval == true }
+        loadSkipped()
         await migrateAlbumSetting()
         startWatchingAlbum()
         // Development: `INFRAMY_IMPORT=/path/a.jpg:/path/b.heic` imports on launch; `INFRAMY_OPEN=editor|tv` picks a screen.
@@ -163,26 +164,47 @@ final class AppModel {
 
     // MARK: Photos album (the source of truth for what's on the TV)
 
-    var albumID: String? { UserDefaults.standard.string(forKey: Prefs.albumID) }
-    var albumTitle: String? { UserDefaults.standard.string(forKey: Prefs.albumTitle) }
+    /// Stored (not computed from UserDefaults) so SwiftUI notices changes; persisted on every set.
+    var albumID: String? = UserDefaults.standard.string(forKey: Prefs.albumID) {
+        didSet { UserDefaults.standard.set(albumID, forKey: Prefs.albumID) }
+    }
+    var albumTitle: String? = UserDefaults.standard.string(forKey: Prefs.albumTitle) {
+        didSet { UserDefaults.standard.set(albumTitle, forKey: Prefs.albumTitle) }
+    }
     var lastAlbumSync: Date? = UserDefaults.standard.object(forKey: Prefs.lastAlbumSync) as? Date
     /// Photos that left the album but still have a copy on the TV; removed once the TV is awake.
     var pendingRemovals: [LibraryPhoto] = []
+    /// Album photos too small for the TV. Shown quietly in the Library; not retried until edited in Photos.
+    var albumSkipped: [PhotosAlbumSync.SkippedPhoto] = []
+    private var skippedFile: URL { store.directory.appendingPathComponent("album-skipped.json") }
+
+    private func loadSkipped() {
+        if let data = try? Data(contentsOf: skippedFile),
+           let list = try? JSONDecoder().decode([PhotosAlbumSync.SkippedPhoto].self, from: data) { albumSkipped = list }
+    }
+
+    private func saveSkipped() {
+        try? FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(albumSkipped).write(to: skippedFile, options: .atomic)
+    }
     @ObservationIgnored private var albumWatcher: PhotosAlbumSync.Watcher?
     @ObservationIgnored private var albumSyncDebounce: Task<Void, Never>?
 
     func chooseAlbum(_ album: PhotosAlbumSync.Album?) {
-        let d = UserDefaults.standard
         if let album {
             guard album.id != albumID else { return }
-            d.set(album.id, forKey: Prefs.albumID)
-            d.set(album.title, forKey: Prefs.albumTitle)
+            albumID = album.id
+            albumTitle = album.title
+            albumSkipped = []
+            saveSkipped()
             startWatchingAlbum()
             Task { await syncAlbum(userInitiated: true) }
         } else {
-            d.removeObject(forKey: Prefs.albumID)
-            d.removeObject(forKey: Prefs.albumTitle)
+            albumID = nil
+            albumTitle = nil
             albumWatcher = nil
+            albumSkipped = []
+            saveSkipped()
         }
     }
 
@@ -191,8 +213,8 @@ final class AppModel {
         let d = UserDefaults.standard
         guard albumID == nil, d.bool(forKey: Prefs.legacyAlbumSyncEnabled),
               let name = d.string(forKey: Prefs.legacyAlbumName), let id = await PhotosAlbumSync.albumID(named: name) else { return }
-        d.set(id, forKey: Prefs.albumID)
-        d.set(name, forKey: Prefs.albumTitle)
+        albumID = id
+        albumTitle = name
         d.removeObject(forKey: Prefs.legacyAlbumSyncEnabled)
     }
 
@@ -219,8 +241,11 @@ final class AppModel {
         isSyncingAlbum = true
         defer { isSyncingAlbum = false }
         do {
-            let result = try await PhotosAlbumSync.sync(albumID: albumID, store: store, library: photos + pendingRemovals)
-            UserDefaults.standard.set(result.albumTitle, forKey: Prefs.albumTitle)
+            let result = try await PhotosAlbumSync.sync(albumID: albumID, store: store, library: photos + pendingRemovals,
+                                                        skipped: albumSkipped)
+            albumSkipped = result.skipped
+            saveSkipped()
+            albumTitle = result.albumTitle
             for photo in result.updated { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
             photos.append(contentsOf: result.imported)
             handleAlbumRemovals(result.removed)
@@ -229,8 +254,9 @@ final class AppModel {
             UserDefaults.standard.set(lastAlbumSync, forKey: Prefs.lastAlbumSync)
             if !result.imported.isEmpty { await recognizeTVPhotos() }
             await processPendingRemovals()
-            if !result.failures.isEmpty {
-                lastError = "Some photos in \u{201C}\(result.albumTitle)\u{201D} were skipped:\n" + result.failures.joined(separator: "\n")
+            // Too-small photos are listed quietly in the Library, not in an alert.
+            if !result.failures.isEmpty, userInitiated {
+                lastError = "Couldn't export from \u{201C}\(result.albumTitle)\u{201D}: " + result.failures.joined(separator: ", ")
             } else if userInitiated {
                 let n = result.imported.count
                 lastError = n == 0 ? "\u{201C}\(result.albumTitle)\u{201D} is up to date."

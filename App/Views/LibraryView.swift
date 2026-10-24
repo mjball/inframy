@@ -20,6 +20,7 @@ struct LibraryView: View {
                         section("Ready to send", model.readyToSend, hint: nil)
                         section("On the TV", photos(.onTV), hint: nil)
                         section("Skipped", photos(.skipped), hint: nil)
+                        if !model.albumSkipped.isEmpty { TooSmallNote() }
                     }
                     .padding(24)
                 }
@@ -300,5 +301,34 @@ struct PhotoDropTarget: ViewModifier {
                 return true
             }
         }
+    }
+}
+
+/// Album photos that are too small for the TV: a quiet note, with the list on request.
+struct TooSmallNote: View {
+    @Environment(AppModel.self) private var model
+    @State private var expanded = false
+
+    var body: some View {
+        let n = model.albumSkipped.count
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(model.albumSkipped) { photo in
+                    HStack {
+                        Text(photo.name).font(.callout)
+                        Spacer()
+                        Text("\(photo.width)×\(photo.height)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Label("\(n) photo\(n == 1 ? "" : "s") in \u{201C}\(model.albumTitle ?? "the album")\u{201D} \(n == 1 ? "is" : "are") too small for the TV (under \(Panel.width)×\(Panel.height))",
+                  systemImage: "photo.badge.exclamationmark")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
     }
 }

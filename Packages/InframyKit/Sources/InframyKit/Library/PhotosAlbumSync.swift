@@ -25,6 +25,19 @@ public enum PhotosAlbumSync {
         public let id: String
         public let title: String
         public let photoCount: Int
+        /// iCloud Shared Albums only keep reduced copies (2048 px long edge): always too small for the TV.
+        public let isShared: Bool
+    }
+
+    /// An album photo that was too small for the TV. Remembered so it isn't retried (or reported) on every sync,
+    /// unless it's edited in Photos.
+    public struct SkippedPhoto: Codable, Sendable, Equatable, Identifiable {
+        public let assetID: String
+        public let name: String
+        public let width: Int
+        public let height: Int
+        public let modified: Date?
+        public var id: String { assetID }
     }
 
     public struct Asset: Sendable, Equatable {
@@ -71,6 +84,9 @@ public enum PhotosAlbumSync {
         /// Existing library photos that changed: re-imported edits, or matched to an album photo by content.
         public var updated: [LibraryPhoto] = []
         public var removed: [UUID] = []
+        /// Album photos too small for the TV (carried over from earlier syncs while unchanged).
+        public var skipped: [SkippedPhoto] = []
+        /// Other problems (export failed, unreadable file).
         public var failures: [String] = []
     }
 
@@ -94,7 +110,8 @@ public enum PhotosAlbumSync {
             let collections = PHAssetCollection.fetchAssetCollections(with: type, subtype: .any, options: nil)
             collections.enumerateObjects { c, _, _ in
                 let count = PHAsset.fetchAssets(in: c, options: imageOptions()).count
-                result.append(Album(id: c.localIdentifier, title: c.localizedTitle ?? "Untitled", photoCount: count))
+                result.append(Album(id: c.localIdentifier, title: c.localizedTitle ?? "Untitled", photoCount: count,
+                                    isShared: c.assetCollectionSubtype == .albumCloudShared))
             }
         }
         return result.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -114,7 +131,8 @@ public enum PhotosAlbumSync {
     }
 
     /// Brings the library in line with the album. Doesn't touch the TV; the app acts on `removed`.
-    public static func sync(albumID: String, store: LibraryStore, library: [LibraryPhoto]) async throws -> Result {
+    public static func sync(albumID: String, store: LibraryStore, library: [LibraryPhoto],
+                            skipped previouslySkipped: [SkippedPhoto] = []) async throws -> Result {
         guard await authorize() else { throw SyncError.notAuthorized }
         guard let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumID], options: nil).firstObject else {
             throw SyncError.albumNotFound
@@ -125,9 +143,14 @@ public enum PhotosAlbumSync {
             assets[a.localIdentifier] = a
             listed.append(Asset(id: a.localIdentifier, modified: a.modificationDate))
         }
-        let diff = diff(album: listed, albumID: albumID, library: library)
+        var diff = diff(album: listed, albumID: albumID, library: library)
+        // Too-small photos aren't retried until they're edited in Photos.
+        let modified = Dictionary(uniqueKeysWithValues: listed.map { ($0.id, $0.modified) })
+        let stillSkipped = previouslySkipped.filter { s in modified[s.assetID].map { $0 == s.modified } ?? false }
+        let skipIDs = Set(stillSkipped.map(\.assetID))
+        diff.new.removeAll { skipIDs.contains($0) }
 
-        var result = Result(albumTitle: album.localizedTitle ?? "album", removed: diff.removed)
+        var result = Result(albumTitle: album.localizedTitle ?? "album", removed: diff.removed, skipped: stillSkipped)
         var known = library
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("InframyAlbum-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -135,10 +158,12 @@ public enum PhotosAlbumSync {
 
         for id in diff.new {
             guard let asset = assets[id] else { continue }
+            let name = displayName(of: asset)
             do {
-                let file = try await exportImage(asset, to: temp)
+                let file = try await exportBestImage(asset, to: temp)
                 switch try store.importPhoto(at: file, copy: true, existing: known) {
                 case .imported(var photo):
+                    photo.displayName = name
                     photo.photosLocalIdentifier = id
                     photo.photosAlbumID = albumID
                     photo.photosModifiedAt = asset.modificationDate
@@ -154,28 +179,63 @@ public enum PhotosAlbumSync {
                         result.updated.append(known[i])
                     }
                 }
-            } catch let e as LibraryStore.ImportError {
-                result.failures.append(e.description)
+            } catch LibraryStore.ImportError.tooSmall(_, let w, let h) {
+                result.skipped.append(SkippedPhoto(assetID: id, name: name, width: w, height: h, modified: asset.modificationDate))
             } catch {
-                result.failures.append(asset.value(forKey: "filename") as? String ?? id)
+                result.failures.append(name)
+            }
+        }
+
+        // Earlier imports were named after Photos' export files ("…-FullSizeRender"): use the real names.
+        for i in known.indices {
+            guard known[i].photosAlbumID == albumID, let id = known[i].photosLocalIdentifier, let asset = assets[id] else { continue }
+            let name = displayName(of: asset)
+            if known[i].displayName != name {
+                known[i].displayName = name
+                if let j = result.updated.firstIndex(where: { $0.id == known[i].id }) { result.updated[j] = known[i] }
+                else { result.updated.append(known[i]) }
             }
         }
 
         for id in diff.edited {
             guard let asset = assets[id], let i = known.firstIndex(where: { $0.photosLocalIdentifier == id }) else { continue }
             do {
-                let file = try await exportImage(asset, to: temp)
+                let file = try await exportBestImage(asset, to: temp)
                 var photo = try store.replaceOriginal(of: known[i], with: file) ?? known[i]
                 photo.photosModifiedAt = asset.modificationDate  // even if the pixels didn't change (e.g. a keyword)
                 known[i] = photo
                 result.updated.append(photo)
-            } catch let e as LibraryStore.ImportError {
-                result.failures.append(e.description)
+            } catch LibraryStore.ImportError.tooSmall(_, let w, let h) {
+                result.skipped.append(SkippedPhoto(assetID: id, name: known[i].displayName, width: w, height: h,
+                                                   modified: asset.modificationDate))
             } catch {
                 result.failures.append(known[i].displayName)
             }
         }
         return result
+    }
+
+    /// The photo's name as Photos shows it (e.g. "IMG_1234"), not the export file's name.
+    static func displayName(of asset: PHAsset) -> String {
+        let resources = PHAssetResource.assetResources(for: asset)
+        let original = resources.first { $0.type == .photo } ?? resources.first
+        let name = original?.originalFilename ?? asset.localIdentifier
+        return (name as NSString).deletingPathExtension
+    }
+
+    /// The edited version if it's big enough for the TV, else the untouched original if that is.
+    static func exportBestImage(_ asset: PHAsset, to dir: URL) async throws -> URL {
+        let edited = try await exportImage(asset, to: dir)
+        if let size = LibraryStore.orientedPixelSize(of: edited), LibraryStore.isLargeEnough(size) { return edited }
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard resources.contains(where: { $0.type == .fullSizePhoto }),
+              let original = resources.first(where: { $0.type == .photo }) else { return edited }
+        let url = dir.appendingPathComponent(UUID().uuidString + "-" + original.originalFilename)
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        try await PHAssetResourceManager.default().writeData(for: original, toFile: url, options: options)
+        if let size = LibraryStore.orientedPixelSize(of: url), LibraryStore.isLargeEnough(size) { return url }
+        return edited
     }
 
     /// Writes the asset's current image (the edited version if there is one) to `dir`.
