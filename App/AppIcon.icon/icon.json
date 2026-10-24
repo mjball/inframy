@@ -17,13 +17,8 @@
   },
   "groups": [
     {
-      "name": "Crop frame & placard",
+      "name": "Crop frame",
       "layers": [
-        {
-          "image-name": "placard.png",
-          "name": "placard",
-          "glass": true
-        },
         {
           "image-name": "brackets.svg",
           "name": "brackets",
@@ -69,8 +64,13 @@
       }
     },
     {
-      "name": "Far ridge & sky",
+      "name": "Birds, far ridge & sky",
       "layers": [
+        {
+          "image-name": "birds.svg",
+          "name": "birds",
+          "glass": false
+        },
         {
           "image-name": "mountains-back.svg",
           "name": "far ridge",
