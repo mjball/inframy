@@ -256,7 +256,7 @@ Decided with Matt (formerly docs/OPEN-QUESTIONS.md):
 - Sharpening is per photo. Icon: dusk landscape in crop brackets, with a flock spelling "86".
 
 Still to verify on the real TV:
-- [ ] Send the album's photos from the app (the big one), and they show full-screen with no mat.
+- [x] Send the album's photos from the app: 82 photos on the TV (2026-10-24, ~10 s each; the TV is the bottleneck).
 - [ ] Shuffle with several photos stays stable over a day or two (a 1-photo shuffle wedged the TV).
 - [ ] Send while the TV is asleep; photos go out when it wakes.
 - [ ] Remove a photo from the album; it leaves the TV.
