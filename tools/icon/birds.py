@@ -79,11 +79,33 @@ for path in strokes:
         if all(math.hypot(x - px, y - py) > SPACING * 0.7 for px, py in points):
             points.append((x, y))
 
+# Make the formation less perfect: lean it like italics, bank it a few degrees, run a gentle wave through it,
+# leave a few gaps, and loosen each bird's position. Real flocks are never laid out on clean curves.
+LEAN = math.radians(8)      # italic-style shear
+BANK = math.radians(-6)      # climbing toward the right
+cx, cy = CENTER
+
+
+def warp(x, y):
+    dx, dy = x - cx, y - cy
+    dx -= dy * math.tan(LEAN)
+    dx, dy = dx * math.cos(BANK) - dy * math.sin(BANK), dx * math.sin(BANK) + dy * math.cos(BANK)
+    dy += 2.0 * math.sin(dx / 17.0)
+    return cx + dx, cy + dy
+
+
 birds = []
+placed = []
 for (x, y) in points:
-    if True:
-        jx, jy = random.uniform(-1.6, 1.6), random.uniform(-1.6, 1.6)
-        birds.append(bird(x + jx, y + jy, random.uniform(4.6, 6.4), random.uniform(-14, 14)))
+    if random.random() < 0.04:   # a few gaps
+        continue
+    wx, wy = warp(x, y)
+    jx, jy = random.uniform(-1.9, 1.9), random.uniform(-1.9, 1.9)
+    bx, by = wx + jx, wy + jy
+    if any(math.hypot(bx - px, by - py) < SPACING * 0.75 for px, py in placed):
+        continue   # no clumps
+    placed.append((bx, by))
+    birds.append(bird(bx, by, random.uniform(4.5, 6.4), math.degrees(BANK) + random.uniform(-14, 14)))
 # A few strays around the flock, so it reads as birds first.
 for (x, y) in [(CENTER[0] - 120, CENTER[1] - 38), (CENTER[0] + 132, CENTER[1] - 58), (CENTER[0] + 104, CENTER[1] + 30)]:
     birds.append(bird(x, y, random.uniform(4.6, 5.6), random.uniform(-10, 10)))
