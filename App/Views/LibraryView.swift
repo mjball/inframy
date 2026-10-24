@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
-    @State private var dropTargeted = false
     @State private var selection: Set<UUID> = []
     @State private var quickLookURL: URL?
     @State private var quickLookItems: [URL] = []
@@ -20,8 +19,10 @@ struct LibraryView: View {
 
     var body: some View {
         Group {
-            if model.photos.isEmpty {
-                EmptyLibraryView()
+            if model.photos.isEmpty && model.albumID == nil {
+                AlbumSetupView()
+            } else if model.photos.isEmpty {
+                EmptyAlbumView()
             } else {
                 ScrollIfLive {
                     VStack(alignment: .leading, spacing: 24) {
@@ -48,16 +49,6 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .navigationSubtitle(subtitle)
-        .overlay {
-            if dropTargeted {
-                RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
-                    .background(RoundedRectangle(cornerRadius: 18).fill(Color.accentColor.opacity(0.06)))
-                    .padding(12)
-                    .allowsHitTesting(false)
-            }
-        }
-        .modifier(PhotoDropTarget(targeted: $dropTargeted))
         .onDeleteCommand { if !selection.isEmpty { model.removeFromLibrary(selection); selection = [] } }
     }
 
@@ -149,21 +140,6 @@ struct LibraryView: View {
                 selection.subtract(ids)
             }
         }
-    }
-}
-
-struct EmptyLibraryView: View {
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "photo.badge.plus")
-                .font(.system(size: 54, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("Drop photos here").font(.title2.weight(.semibold))
-            Text("Drag photos in from Finder or Photos, or use Import (⌘O). Photos need to be at least 3840×2160.\nYou'll pick the 16:9 area for each one; nothing is cropped for you.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -277,73 +253,6 @@ struct StatusBadge: View {
     }
 }
 
-/// Drops from Finder (file URLs: referenced in place) and Photos (image data: copied into the library).
-enum PhotoDrop {
-    @MainActor
-    static func handle(_ providers: [NSItemProvider], model: AppModel) async {
-        var references: [URL] = []
-        var copies: [URL] = []
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
-               let url = await loadFileURL(provider) {
-                references.append(url)
-            } else if let url = await copyImage(provider) {
-                copies.append(url)
-            }
-        }
-        if !references.isEmpty { await model.importFiles(references, copy: false) }
-        if !copies.isEmpty {
-            await model.importFiles(copies, copy: true)
-            for url in copies { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        }
-    }
-
-    @MainActor
-    private static func loadFileURL(_ provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { cont in
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in cont.resume(returning: url) }
-        }
-    }
-
-    /// Photos hands out a temporary file (or a file promise); copy it before the handler returns.
-    @MainActor
-    private static func copyImage(_ provider: NSItemProvider) async -> URL? {
-        let type = provider.registeredTypeIdentifiers.first { UTType($0)?.conforms(to: .image) == true }
-            ?? UTType.image.identifier
-        return await withCheckedContinuation { cont in
-            _ = provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
-                guard let url else { cont.resume(returning: nil); return }
-                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("InframyDrop-\(UUID().uuidString)")
-                do {
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    let dest = dir.appendingPathComponent(url.lastPathComponent)
-                    try FileManager.default.copyItem(at: url, to: dest)
-                    cont.resume(returning: dest)
-                } catch {
-                    cont.resume(returning: nil)
-                }
-            }
-        }
-    }
-}
-
-/// Accepts photo drops (skipped in dev snapshots, which can't render drop targets).
-struct PhotoDropTarget: ViewModifier {
-    @Environment(AppModel.self) private var model
-    @Environment(\.isSnapshot) private var isSnapshot
-    @Binding var targeted: Bool
-
-    func body(content: Content) -> some View {
-        if isSnapshot {
-            content
-        } else {
-            content.onDrop(of: [.fileURL, .image], isTargeted: $targeted) { providers in
-                Task { await PhotoDrop.handle(providers, model: model) }
-                return true
-            }
-        }
-    }
-}
 
 /// Album photos that are too small for the TV: a quiet note, with thumbnails on request.
 struct TooSmallNote: View {

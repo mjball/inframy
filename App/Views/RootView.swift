@@ -1,12 +1,8 @@
 import InframyKit
-import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var showingFileImporter = false
-    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var showingQueue = false
 
     var body: some View {
@@ -48,15 +44,6 @@ struct RootView: View {
             }
             .toolbar { toolbar }
         }
-        .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { Task { await model.importFiles(urls, copy: false) } }
-        }
-        .onChange(of: pickerItems) { _, items in
-            guard !items.isEmpty else { return }
-            pickerItems = []
-            Task { await importPicked(items) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .importPhotos)) { _ in showingFileImporter = true }
         .alert("Inframy", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
             Button("OK") { model.lastError = nil }
         } message: {
@@ -69,19 +56,7 @@ struct RootView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                Button("From Files…") { showingFileImporter = true }
-                PhotosPicker("From Photos…", selection: $pickerItems, matching: .images)
-                if model.albumID != nil {
-                    Divider()
-                    Button("Sync \u{201C}\(model.albumTitle ?? "Album")\u{201D} Now") { Task { await model.syncAlbum(userInitiated: true) } }
-                }
-            } label: {
-                Label("Import", systemImage: "plus")
-            } primaryAction: {
-                showingFileImporter = true
-            }
-            .help("Import photos (or drag them in from Finder or Photos)")
+            AlbumToolbarMenu()
 
             Button {
                 showingQueue.toggle()
@@ -111,30 +86,6 @@ struct RootView: View {
     private var sendTitle: String {
         let n = model.readyToSend.count
         return n == 0 ? "Send" : "Send \(n)"
-    }
-
-    private func importPicked(_ items: [PhotosPickerItem]) async {
-        var urls: [URL] = []
-        for item in items {
-            if let file = try? await item.loadTransferable(type: PickedImageFile.self) { urls.append(file.url) }
-        }
-        await model.importFiles(urls, copy: true)
-        for url in urls { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-    }
-}
-
-/// A photo handed over by the Photos picker, copied to a temp folder we own.
-struct PickedImageFile: Transferable {
-    let url: URL
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(importedContentType: .image) { received in
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("InframyPick-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let dest = dir.appendingPathComponent(received.file.lastPathComponent)
-            try FileManager.default.copyItem(at: received.file, to: dest)
-            return PickedImageFile(url: dest)
-        }
     }
 }
 

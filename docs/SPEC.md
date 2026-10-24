@@ -45,8 +45,10 @@ It's slow, error-prone and doesn't scale to many photos. SmartThings is also unr
 1. **Find the TV automatically.** Bonjour (`_samsungmsf._tcp`), confirmed via REST `FrameTVSupport`; Matt never
    types an IP. Manual IP entry exists only as a fallback. On Matt's TV the art channel needed no token; if a
    TV does issue one, it goes in the Keychain.
-2. **Import.** Drag photos from Finder or Photos into the window, use a Photos picker, or (Phase 3) designate a
-   Photos album ("Frame") that Inframy keeps in sync.
+2. **One Photos album is the source of truth (Matt, 2026-10-24).** Matt picks an album ("The Frame pics") from the
+   album menu in the toolbar (first run: a setup screen). New photos in it appear in the Library; photos taken out of
+   it leave the TV; edits are picked up. There is no other way in: no Finder/Photos drag, picker or Import command.
+   (The CLI's `upload` remains as a developer tool.)
 3. **Crop.** Matt picks the 16:9 area for every photo in a fast crop editor (§4). Inframy never crops on its own:
    computer vision only suggests where the frame starts.
 4. **Send.** One button. Inframy renders, dedupes, uploads with no mat, and ensures shuffle is on for the TV's
@@ -192,12 +194,12 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 ### Phase 2: The app (MVP)
 
 - [x] Pair/connect UI with TV status (automatic: finds, pins and remembers the TV).
-- [x] Import by drag-and-drop from Finder and Photos, and a Photos picker.
+- [x] ~~Import by drag-and-drop and a Photos picker~~ replaced by album sync as the only source (2026-10-24).
 - [x] Crop editor per §4 (manual crops only; suggestion sets the starting frame).
 - [x] "Send to TV" with progress queue.
 - [x] "On the TV" grid with thumbnails and multi-select delete.
 - [x] App icon (Liquid Glass `.icon`).
-- [ ] Verified end to end on the real TV (pending Matt; see docs/OPEN-QUESTIONS.md).
+- [ ] Verified end to end on the real TV (see §12 Status).
 - **Done when:** Matt can go from photos in Finder/Photos to shuffling on the TV without touching SmartThings.
 
 ### Phase 3: Library smarts
@@ -241,3 +243,22 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - SAWSUBE (self-hosted app; image pipeline and dedup ideas): https://github.com/WB2024/SAWSUBE
 - Samsung developer forum on 2022 firmware renaming commands:
   https://forum.developer.samsung.com/t/most-reliable-approach-to-manage-art-mode-images-on-samsung-frame-tvs/29155
+
+## 12. Status and decisions (2026-10-24)
+
+Decided with Matt (formerly docs/OPEN-QUESTIONS.md):
+- Photos come only from the chosen Photos album; removing one from the album removes it from the TV (Settings can
+  keep it instead). Large portraits are allowed: Matt crops a landscape slice. Minimum source size 3840×2160.
+- Shuffle intervals offered: 3 min, 15 min, 1 h, 12 h, 1 day (the TV accepts any value). Never shuffle < 2 photos.
+- No rotation: the TV's shuffle rotates; Inframy uploads everything. "Keep the slideshow on" is on by default.
+- Photos already on the TV are recognized automatically (sub-image match, crop recovered); "Not the Same Photo" undoes.
+- Reduced copies in the album are replaced with full-size originals via Find Full-Size Originals (read-only).
+- Sharpening is per photo. Icon: dusk landscape in crop brackets, with a flock spelling "86".
+
+Still to verify on the real TV:
+- [ ] Send the album's photos from the app (the big one), and they show full-screen with no mat.
+- [ ] Shuffle with several photos stays stable over a day or two (a 1-photo shuffle wedged the TV).
+- [ ] Send while the TV is asleep; photos go out when it wakes.
+- [ ] Remove a photo from the album; it leaves the TV.
+- [ ] Menu bar item; open at login (from /Applications).
+

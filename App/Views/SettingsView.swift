@@ -30,8 +30,8 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Photos") {
-                AlbumPicker()
+            Section("Photos album") {
+                RemovalSetting()
             }
             Section("TV") {
                 Picker("Shuffle interval when Inframy turns shuffle on", selection: $shuffleMinutes) {
@@ -77,68 +77,18 @@ enum LoginItem {
     }
 }
 
-/// Choose the Photos album Inframy keeps the TV in step with.
-struct AlbumPicker: View {
+/// What happens on the TV when a photo is taken out of the album. (The album itself is chosen in the toolbar.)
+struct RemovalSetting: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Prefs.albumRemoval) private var removal = "removeFromTV"
-    @State private var albums: [PhotosAlbumSync.Album] = []
-    @State private var loading = false
-    @State private var needsAccess = !PhotosAlbumSync.isAuthorized
 
     var body: some View {
-        if needsAccess {
-            LabeledContent("Photos album") {
-                Button("Allow Access to Photos…") { Task { await load() } }
-            }
-            Text("Inframy only reads from Photos. It never changes your library or albums.")
-                .font(.caption).foregroundStyle(.secondary)
-        } else {
-            Picker("Photos album", selection: Binding(
-                get: { model.albumID ?? "" },
-                set: { id in model.chooseAlbum(albums.first { $0.id == id }) })) {
-                Text("None").tag("")
-                if let id = model.albumID, !albums.contains(where: { $0.id == id }) {
-                    Text(model.albumTitle ?? "Current album").tag(id)   // shown while the list loads
-                }
-                ForEach(albums) { album in
-                    Text(album.isShared ? "\(album.title)  (\(album.photoCount), shared album)" : "\(album.title)  (\(album.photoCount))")
-                        .tag(album.id)
-                }
-            }
-            .task { await load() }
-            if let id = model.albumID, albums.first(where: { $0.id == id })?.isShared == true {
-                Label("Shared albums only keep reduced copies (2048 px), which are too small for the TV. Use a regular album.",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-            if model.albumID != nil {
-                Picker("When a photo is removed from the album", selection: $removal) {
-                    Text("Remove it from the TV").tag("removeFromTV")
-                    Text("Keep it on the TV").tag("keep")
-                }
-                Text("New photos in the album show up in the Library within seconds, waiting for you to pick their crop. Edits you make in Photos are picked up too. Sending is still up to you.")
-                    .font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    if let last = model.lastAlbumSync {
-                        Text("Last synced \(last.formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if model.isSyncingAlbum { ProgressView().controlSize(.small) }
-                    Button("Sync Now") { Task { await model.syncAlbum(userInitiated: true) } }
-                        .disabled(model.isSyncingAlbum)
-                }
-            }
+        LabeledContent("Album", value: model.albumTitle ?? "None chosen")
+        Picker("When a photo is removed from the album", selection: $removal) {
+            Text("Remove it from the TV").tag("removeFromTV")
+            Text("Keep it on the TV").tag("keep")
         }
-    }
-
-    private func load() async {
-        loading = true
-        defer { loading = false }
-        do {
-            albums = try await PhotosAlbumSync.albums()
-            needsAccess = false
-        } catch {
-            needsAccess = true
-        }
+        Text("Choose or switch the album from the album menu in the main window's toolbar.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 }
