@@ -304,24 +304,23 @@ struct PhotoDropTarget: ViewModifier {
     }
 }
 
-/// Album photos that are too small for the TV: a quiet note, with the list on request.
+/// Album photos that are too small for the TV: a quiet note, with thumbnails on request.
 struct TooSmallNote: View {
     @Environment(AppModel.self) private var model
     @State private var expanded = false
+    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 12)]
 
     var body: some View {
         let n = model.albumSkipped.count
         DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(model.albumSkipped) { photo in
-                    HStack {
-                        Text(photo.name).font(.callout)
-                        Spacer()
-                        Text("\(photo.width)×\(photo.height)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("These are in \u{201C}\(model.albumTitle ?? "the album")\u{201D} but have fewer pixels than the TV, so they'd look soft. Replace them in the album with full-size versions, or take them out.")
+                    .font(.callout).foregroundStyle(.secondary)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                    ForEach(model.albumSkipped) { SkippedTile(photo: $0) }
                 }
             }
-            .padding(.top, 6)
+            .padding(.top, 8)
         } label: {
             Label("\(n) photo\(n == 1 ? "" : "s") in \u{201C}\(model.albumTitle ?? "the album")\u{201D} \(n == 1 ? "is" : "are") too small for the TV (under \(Panel.width)×\(Panel.height))",
                   systemImage: "photo.badge.exclamationmark")
@@ -330,5 +329,35 @@ struct TooSmallNote: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
+    }
+}
+
+struct SkippedTile: View {
+    let photo: PhotosAlbumSync.SkippedPhoto
+    @State private var image: NSImage?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ZStack {
+                Rectangle().fill(.quaternary)
+                if let image { Image(nsImage: image).resizable().scaledToFill() }
+            }
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            Text(label).font(.caption).lineLimit(1)
+            Text("\(photo.width)×\(photo.height)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .help(photo.name)
+        .task(id: photo.assetID) {
+            if let cg = await PhotosAlbumSync.thumbnail(assetID: photo.assetID, maxPixel: 400) {
+                image = NSImage(cgImage: cg, size: .zero)
+            }
+        }
+    }
+
+    private var label: String {
+        if let name = photo.readableName { return name }
+        if let date = photo.created { return date.formatted(date: .abbreviated, time: .shortened) }
+        return "Untitled photo"
     }
 }

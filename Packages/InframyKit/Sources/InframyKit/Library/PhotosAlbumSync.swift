@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Photos
 
@@ -37,7 +38,14 @@ public enum PhotosAlbumSync {
         public let width: Int
         public let height: Int
         public let modified: Date?
+        /// When it was taken (or added to Photos): a readable label when the file name is just an id.
+        public var created: Date? = nil
         public var id: String { assetID }
+
+        /// The file name, unless it's a meaningless id (files saved into Photos from elsewhere often are).
+        public var readableName: String? {
+            name.range(of: #"^[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$"#, options: .regularExpression) == nil ? name : nil
+        }
     }
 
     public struct Asset: Sendable, Equatable {
@@ -146,7 +154,13 @@ public enum PhotosAlbumSync {
         var diff = diff(album: listed, albumID: albumID, library: library)
         // Too-small photos aren't retried until they're edited in Photos.
         let modified = Dictionary(uniqueKeysWithValues: listed.map { ($0.id, $0.modified) })
-        let stillSkipped = previouslySkipped.filter { s in modified[s.assetID].map { $0 == s.modified } ?? false }
+        let stillSkipped = previouslySkipped
+            .filter { s in modified[s.assetID].map { $0 == s.modified } ?? false }
+            .map { s -> SkippedPhoto in
+                var s = s
+                if s.created == nil { s.created = assets[s.assetID]?.creationDate }  // lists saved before dates were kept
+                return s
+            }
         let skipIDs = Set(stillSkipped.map(\.assetID))
         diff.new.removeAll { skipIDs.contains($0) }
 
@@ -180,7 +194,8 @@ public enum PhotosAlbumSync {
                     }
                 }
             } catch LibraryStore.ImportError.tooSmall(_, let w, let h) {
-                result.skipped.append(SkippedPhoto(assetID: id, name: name, width: w, height: h, modified: asset.modificationDate))
+                result.skipped.append(SkippedPhoto(assetID: id, name: name, width: w, height: h, modified: asset.modificationDate,
+                                                   created: asset.creationDate))
             } catch {
                 result.failures.append(name)
             }
@@ -207,12 +222,28 @@ public enum PhotosAlbumSync {
                 result.updated.append(photo)
             } catch LibraryStore.ImportError.tooSmall(_, let w, let h) {
                 result.skipped.append(SkippedPhoto(assetID: id, name: known[i].displayName, width: w, height: h,
-                                                   modified: asset.modificationDate))
+                                                   modified: asset.modificationDate, created: asset.creationDate))
             } catch {
                 result.failures.append(known[i].displayName)
             }
         }
         return result
+    }
+
+    /// A preview of a Photos asset (read-only), for showing which photo is which.
+    public static func thumbnail(assetID: String, maxPixel: CGFloat) async -> CGImage? {
+        guard isAuthorized,
+              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject else { return nil }
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat   // one callback
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        return await withCheckedContinuation { cont in
+            PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxPixel, height: maxPixel),
+                                                  contentMode: .aspectFit, options: options) { image, _ in
+                cont.resume(returning: image?.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            }
+        }
     }
 
     /// The photo's name as Photos shows it (e.g. "IMG_1234"), not the export file's name.
