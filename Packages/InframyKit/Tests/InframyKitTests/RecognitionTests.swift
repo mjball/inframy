@@ -58,6 +58,22 @@ struct RecognitionTests {
         #expect(abs(found.width - rect.width) < 0.03, "\(found)")
     }
 
+    @Test func findsNon16x9Copies() throws {
+        // A 4:3 copy (e.g. a photo saved smaller), not a TV crop.
+        let original = try scene(seed: 31, width: 3000, height: 2000)
+        let full = try cg(original)
+        let region = CGRect(x: 600, y: 400, width: 1600, height: 1200)
+        let crop = try #require(full.cropping(to: region))
+        let copy = try cg(try TestImage.jpeg(width: 400, height: 300, colorSpace: .sRGB) { ctx, w, h in
+            ctx.interpolationQuality = .high
+            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+        })
+        let result = try #require(SubImageMatcher.match(original: try preview(original), tvImage: copy))
+        guard case .crop(let found) = result.choice else { Issue.record("expected a crop"); return }
+        #expect(abs(found.x - 0.2) < 0.02 && abs(found.y - 0.2) < 0.02, "\(found)")
+        #expect(abs(found.width - 1600.0 / 3000) < 0.03 && abs(found.height - 0.6) < 0.03, "\(found)")
+    }
+
     @Test func unrelatedPhotosDontMatch() throws {
         for seed in 20..<24 {
             let tv = try tvThumbnail(of: try scene(seed: seed), spec: RenderSpec(mode: .crop(NormalizedRect(x: 0, y: 0.125, width: 1, height: 0.75))))
