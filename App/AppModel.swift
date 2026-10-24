@@ -128,9 +128,12 @@ final class AppModel {
         guard let status = try? await withClient({ try await $0.slideshowStatus() }) else { return }
         slideshow = status
         let personal = (try? await withClient { try await $0.contentList() }) ?? []
-        // A single-photo shuffle wedged Matt's 2020 Frame (docs/PROTOCOL.md): only shuffle two or more.
+        // A single-photo shuffle wedged Matt's 2020 Frame (docs/PROTOCOL.md): only shuffle two or more,
+        // and switch off a shuffle that's down to one.
         if personal.count >= 2, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
             await setShuffle(on: true)
+        } else if personal.count < 2, status.isOn, status.categoryID == ArtProtocol.personalCategory {
+            await setShuffle(on: false)
         }
     }
 
@@ -364,6 +367,10 @@ final class AppModel {
             }
             saveLibrary()
             if gone.count < ids.count { lastError = "The TV didn't confirm deleting \(ids.count - gone.count) item(s)." }
+            // Don't leave a 1-photo shuffle running: it wedges this TV (docs/PROTOCOL.md).
+            if tvItems.count < 2, slideshow?.isOn == true, slideshow?.categoryID == ArtProtocol.personalCategory {
+                await setShuffle(on: false)
+            }
         } catch {
             lastError = "Delete failed: \(error)"
         }
