@@ -34,7 +34,7 @@ What each phase added:
 ## Questions (assumed answers)
 
 1. **Icon.** Built as a Liquid Glass `.icon` (App/AppIcon.icon; preview in docs/images/app-icon-*.png): dusk sky,
-   mountains and a lake, 16:9 crop brackets, the setting sun carrying an upload arrow. *Assumed: you like the
+   mountains and a lake inside 16:9 crop brackets (the sun with an upload arrow was removed 2026-10-24: too busy at small sizes). *Assumed: you like the
    direction.* Easy to tweak: colors, arrow size, bracket weight.
 2. **Icon placard text.** For the "subtle wink at Samsung" I put a tiny gallery placard reading **"No. 86"**
    under the picture (to 86 = to throw out; also your TV's IP ends in .86). *Assumed: you like it.*
