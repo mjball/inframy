@@ -333,6 +333,16 @@ When the motion sensor turns the screen off (nobody in the room), the TV drops o
 REST, Bonjour or art channel. It rejoins when someone walks in and the screen wakes. Background jobs can only
 run while the screen is on, or after Wake-on-LAN (untested from this state).
 
+### Sleep and Wake-on-LAN (2026-10-24)
+
+- With the motion sensor's screen-off (no one in the room for ~6 min), the TV **leaves the network entirely**
+  (no ping/REST/Bonjour), even with *Power On with Mobile* on. Monitor: reachable 13:05–13:13, Matt left 13:07.
+- **Wake-on-LAN works:** from a full power-off (long-press power), the TV was back on the network **3 s** after
+  the magic packet (`PowerState: on`). But it powered on **into the last input** (Apple TV, HDMI 1), not Art mode,
+  and the art channel then accepts the WebSocket but never sends `ms.channel.ready` (2½ min+). So WOL from full
+  off is not useful for background jobs. *Untested:* WOL from the motion-sensor sleep.
+- Inframy's "Wake the TV to rotate" stays off by default.
+
 ### Network setup that works (2026-10-23)
 
 Manual IP `192.168.5.86/22` (eero reservation on the same IP), **gateway and DNS = the Pi-hole (`192.168.4.70`)**.
