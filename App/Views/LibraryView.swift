@@ -143,7 +143,7 @@ struct LibraryView: View {
     }
 }
 
-/// A library photo: shows the chosen area (or the whole photo while undecided), with a status badge.
+/// A library photo: shows the chosen area (or the whole photo while undecided).
 struct PhotoTile: View {
     @Environment(AppModel.self) private var model
     let photo: LibraryPhoto
@@ -158,7 +158,11 @@ struct PhotoTile: View {
             }
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .topTrailing) { StatusBadge(status: photo.status).padding(6) }
+            .overlay(alignment: .topTrailing) {
+                // The section heading already says each photo's status; only "Changed" adds something
+                // (in Ready to send, it marks a photo that will replace the copy on the TV).
+                if photo.status == .changedSinceUpload { StatusBadge(status: photo.status).padding(6) }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(selected ? Color.accentColor : .black.opacity(0.08), lineWidth: selected ? 3 : 1)
