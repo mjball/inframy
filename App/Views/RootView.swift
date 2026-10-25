@@ -43,12 +43,23 @@ struct RootView: View {
                 }
             }
             .toolbar { toolbar }
+            .alert(massRemovalTitle, isPresented: Binding(get: { model.massRemovalPrompt != nil }, set: { _ in })) {
+                Button("Remove from TV", role: .destructive) { Task { await model.resolveMassRemoval(remove: true) } }
+                Button("Keep Them") { Task { await model.resolveMassRemoval(remove: false) } }
+            } message: {
+                Text("They're no longer in \u{201C}\(model.massRemovalPrompt?.albumTitle ?? "the album")\u{201D}. If that's a Photos hiccup (for example while iCloud is syncing), keep them. Kept photos stay on the TV and in the Library but stop following the album.")
+            }
         }
         .alert("Inframy", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
             Button("OK") { model.lastError = nil }
         } message: {
             Text(model.lastError ?? "")
         }
+    }
+
+    private var massRemovalTitle: String {
+        let n = model.massRemovalPrompt?.ids.count ?? 0
+        return "\(n) photos left the album. Remove them from the TV?"
     }
 
     private var needsCrop: Int { model.photos.filter { $0.status == .needsCrop }.count }

@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-/// A photo Matt has imported. Originals are never modified: Finder files are referenced by bookmark, and photos
-/// dragged from Photos (which only hands out copies) are copied into the library's `Originals` folder.
+/// A photo from the synced Photos album. Originals are never modified: each is a copy in the library's
+/// `Originals` folder (older libraries may still reference files elsewhere by bookmark).
 public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable {
     /// Matt's decision for this photo. Nothing is sent until it's `.crop`: Inframy never crops on its own.
     public enum Choice: Codable, Sendable, Equatable, Hashable {
@@ -85,6 +85,22 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     /// Already 16:9: no crop to choose, only resizing.
     public var isPanelShaped: Bool { abs(aspect - Panel.aspect) / Panel.aspect < 0.005 }
 
+    /// A crop narrower than the panel in source pixels would have to be upscaled, which Inframy never does.
+    public static func cropIsLargeEnough(_ rect: NormalizedRect, imageSize: CGSize) -> Bool {
+        rect.width * imageSize.width >= Double(Panel.width) - 1
+    }
+
+    /// Uses `rect` as the crop if it needs no upscaling; otherwise the photo needs a crop, with the editor starting
+    /// on the same spot. (Recovered crops, from recognition or Find Originals, can be smaller than the panel.)
+    public mutating func setRecoveredCrop(_ rect: NormalizedRect) {
+        if Self.cropIsLargeEnough(rect, imageSize: imageSize) {
+            choice = .crop(rect)
+        } else {
+            choice = .undecided
+            suggestedCenter = [rect.x + rect.width / 2, rect.y + rect.height / 2]
+        }
+    }
+
     public var renderSpec: RenderSpec? {
         switch choice {
         case .crop(let rect): return RenderSpec(mode: .crop(rect), sharpen: sharpen ?? false)
@@ -124,11 +140,22 @@ public struct LibraryStore: Sendable {
     var fileURL: URL { directory.appendingPathComponent("library.json") }
     public var originalsDirectory: URL { directory.appendingPathComponent("Originals") }
 
-    public func load() -> [LibraryPhoto] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+    /// The saved library: empty if there's no file yet. Throws if the file exists but can't be read, so the caller
+    /// never mistakes a damaged library for an empty one (and saves over it).
+    public func load() throws -> [LibraryPhoto] {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        let data = try Data(contentsOf: fileURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([LibraryPhoto].self, from: data)) ?? []
+        return try decoder.decode([LibraryPhoto].self, from: data)
+    }
+
+    /// Copies an unreadable library aside (library-unreadable-<date>.json) and returns where it went.
+    @discardableResult
+    public func backUpUnreadableLibrary() -> URL? {
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let dest = directory.appendingPathComponent("library-unreadable-\(stamp).json")
+        return (try? FileManager.default.copyItem(at: fileURL, to: dest)) != nil ? dest : nil
     }
 
     public func save(_ photos: [LibraryPhoto]) throws {
@@ -239,6 +266,9 @@ public struct LibraryStore: Sendable {
         if !sameShape {
             p.choice = p.isPanelShaped ? .crop(.full) : .undecided
             p.recognizedOnTV = nil
+        } else if case .crop(let rect) = p.choice, minimumSize.width > 0 {
+            // Same shape but smaller: the old crop may now need upscaling.
+            p.setRecoveredCrop(rect)
         }
         return p
     }
