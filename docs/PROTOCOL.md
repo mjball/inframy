@@ -331,7 +331,7 @@ fix it. **Inframy never enables shuffle with fewer than 2 photos.** Untested: sh
 
 When the motion sensor turns the screen off (nobody in the room), the TV drops off Wi-Fi entirely: no ping,
 REST, Bonjour or art channel. It rejoins when someone walks in and the screen wakes. Background jobs can only
-run while the screen is on, or after Wake-on-LAN (untested from this state).
+run while the screen is on, or after Wake-on-LAN (works from this state; see below).
 
 ### Sleep and Wake-on-LAN (2026-10-24)
 
@@ -340,7 +340,11 @@ run while the screen is on, or after Wake-on-LAN (untested from this state).
 - **Wake-on-LAN works:** from a full power-off (long-press power), the TV was back on the network **3 s** after
   the magic packet (`PowerState: on`). But it powered on **into the last input** (Apple TV, HDMI 1), not Art mode,
   and the art channel then accepts the WebSocket but never sends `ms.channel.ready` (2½ min+). So WOL from full
-  off is not useful for background jobs. *Untested:* WOL from the motion-sensor sleep.
+  off is not useful for background jobs.
+- **Wake-on-LAN from motion-sensor sleep works (2026-10-25):** with the TV off the network after the motion
+  sensor turned the screen off, Matt (away from the room) sent the wake from Inframy and the app connected and
+  listed My Photos (82 items, slideshow status read). The art channel was ready, unlike after a wake from full
+  power-off. What the screen showed, and how long the wake took, weren't recorded.
 - Inframy's "Wake the TV to rotate" stays off by default.
 
 ### Storage (2026-10-24)
