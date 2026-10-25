@@ -209,6 +209,32 @@ struct ClientTests {
     }
 }
 
+extension ClientTests {
+    @Test func stalledThumbnailTransferTimesOut() async throws {
+        let d2d = try await FakeD2D(mode: .stall)
+        defer { d2d.stop() }
+        let endpoint = D2DSocket.Endpoint(host: "127.0.0.1", port: d2d.port)
+        let start = ContinuousClock.now
+        await #expect(throws: ArtError.self) {
+            _ = try await D2DSocket.receive(from: endpoint, timeout: .milliseconds(400))
+        }
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
+    @Test func concurrentRequestsShareOneConnection() async throws {
+        let tv = try await FakeTV { req, _ in
+            [try Fixture.reply(req.name == "get_content_list" ? "content-list" : "current-artwork", id: req.id)]
+        }
+        defer { tv.stop() }
+        let client = tv.client()
+        async let a = client.contentList()
+        async let b = client.currentArtwork()
+        async let c = client.contentList()
+        _ = try await (a, b, c)
+        #expect(tv.connectionCount == 1)
+    }
+}
+
 final class Box<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: T?

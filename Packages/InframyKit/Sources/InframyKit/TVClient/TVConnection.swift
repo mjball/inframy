@@ -29,6 +29,10 @@ public actor TVConnection {
     private let makeTransport: TransportFactory
     private var transport: (any ArtTransport)?
     private var readerTask: Task<Void, Never>?
+    /// The connection attempt in progress, shared by concurrent callers.
+    private var connecting: Task<Void, Error>?
+    /// Bumped on every close/drop, so a stale reader or attempt can't tear down a newer connection.
+    private var generation = 0
     private var waiters: [UUID: Waiter] = [:]
     private var broadcastContinuations: [UUID: AsyncStream<ArtMessage>.Continuation] = [:]
 
@@ -46,8 +50,18 @@ public actor TVConnection {
 
     // MARK: Connecting
 
+    /// Connects if needed. Concurrent callers share one attempt, so there's never more than one connection.
     public func connect() async throws {
         if transport != nil { return }
+        if let connecting { return try await connecting.value }
+        let attempt = Task { try await self.open() }
+        connecting = attempt
+        defer { if connecting == attempt { connecting = nil } }
+        try await attempt.value
+    }
+
+    private func open() async throws {
+        let startedIn = generation
         let url = ArtProtocol.channelURL(host: options.host, port: options.port, secure: options.secure,
                                          token: options.token ?? issuedToken)
         let t = makeTransport(url, options.pinnedCertificate)
@@ -61,9 +75,14 @@ public actor TVConnection {
             t.close()
             throw error
         }
+        guard generation == startedIn else {
+            t.close()
+            throw ArtError.disconnected("closed while connecting")
+        }
         certificateFingerprint = t.serverCertificateFingerprint
         transport = t
-        readerTask = Task { [weak self] in await self?.readLoop(t) }
+        let current = generation
+        readerTask = Task { [weak self] in await self?.readLoop(t, generation: current) }
     }
 
     /// Reads until `ms.channel.ready`. Returns the token from `ms.channel.connect`, if the TV sent one.
@@ -80,6 +99,8 @@ public actor TVConnection {
     }
 
     public func close() {
+        generation += 1
+        connecting = nil
         readerTask?.cancel()
         readerTask = nil
         transport?.close()
@@ -163,14 +184,15 @@ public actor TVConnection {
 
     // MARK: Reading
 
-    private func readLoop(_ t: any ArtTransport) async {
+    private func readLoop(_ t: any ArtTransport, generation reader: Int) async {
         while !Task.isCancelled {
             let text: String
             do {
                 text = try await t.receive()
             } catch {
                 if Task.isCancelled { return }
-                dropConnection(error)
+                // Only the current connection's reader may drop it.
+                if reader == generation { dropConnection(error) } else { t.close() }
                 return
             }
             // A frame we can't parse isn't worth dropping the connection over.
@@ -209,6 +231,7 @@ public actor TVConnection {
     }
 
     private func dropConnection(_ error: Error) {
+        generation += 1
         transport?.close()
         transport = nil
         readerTask = nil

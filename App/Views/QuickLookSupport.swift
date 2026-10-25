@@ -13,7 +13,7 @@ enum QuickLookFiles {
               let rep = NSBitmapImageRep(data: tiff),
               let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.92]) else { return nil }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("\(id).jpg")
+        let url = dir.appendingPathComponent("\(ContentItem.fileName(for: id)).jpg")
         try? jpeg.write(to: url, options: .atomic)
         return url
     }

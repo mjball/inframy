@@ -19,7 +19,8 @@ public enum JSON: Sendable, Equatable {
     public var stringValue: String? {
         switch self {
         case .string(let s): return s
-        case .number(let n): return n.rounded() == n ? String(Int(n)) : String(n)
+        // Int(exactly:) rather than Int(_:), which traps on huge values from a misbehaving device.
+        case .number(let n): return Int(exactly: n).map { String($0) } ?? String(n)
         case .bool(let b): return b ? "true" : "false"
         default: return nil
         }

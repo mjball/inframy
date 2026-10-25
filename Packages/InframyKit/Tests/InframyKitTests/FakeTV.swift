@@ -160,6 +160,8 @@ final class FakeD2D: @unchecked Sendable {
     enum Mode: Sendable {
         case receive
         case send(header: JSON, body: Data)
+        /// Accepts the connection and then says nothing (a TV that fell asleep mid-transfer).
+        case stall
     }
 
     private let listener: NWListener
@@ -189,6 +191,8 @@ final class FakeD2D: @unchecked Sendable {
         switch mode {
         case .receive:
             read(conn)
+        case .stall:
+            break
         case .send(let header, let body):
             let framed = D2DSocket.frame(header: Data(header.serialized().utf8), body: body)
             conn.send(content: framed, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
