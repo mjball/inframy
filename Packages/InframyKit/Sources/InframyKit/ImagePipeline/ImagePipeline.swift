@@ -32,6 +32,9 @@ public struct ImagePipeline: Sendable {
     private let context: CIContext
     private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
+    /// One pipeline (and Core Image context) for the whole app: contexts are expensive to create.
+    public static let shared = ImagePipeline()
+
     public init() {
         context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
                                       .cacheIntermediates: false])
@@ -140,7 +143,7 @@ public struct RenderCache: Sendable {
     public func url(for key: String) -> URL { directory.appendingPathComponent("\(key).jpg") }
 
     /// Returns the cached render for `source` + `spec`, rendering and storing it if needed.
-    public func render(_ source: URL, spec: RenderSpec, pipeline: ImagePipeline = ImagePipeline()) throws -> (url: URL, upscale: Double?) {
+    public func render(_ source: URL, spec: RenderSpec, pipeline: ImagePipeline = .shared) throws -> (url: URL, upscale: Double?) {
         let key = ImagePipeline.cacheKey(sourceSHA256: try ImagePipeline.sha256(of: source), spec: spec)
         let out = url(for: key)
         if FileManager.default.fileExists(atPath: out.path) { return (out, nil) }

@@ -69,6 +69,12 @@ final class AppModel {
     }
 
     @ObservationIgnored private var presenceTask: Task<Void, Never>?
+    @ObservationIgnored private var started = false
+    @ObservationIgnored private var isConnecting = false
+    /// Consecutive failed REST checks while connected; one miss isn't enough to call the TV asleep.
+    @ObservationIgnored private var missedChecks = 0
+    /// A Photos change arrived while a sync was running: sync again when it's done.
+    @ObservationIgnored private var syncAgain = false
     @ObservationIgnored private var lastShuffleCheck = Date.distantPast
     @ObservationIgnored private var lastDiscoveryAttempt = Date.distantPast
 
@@ -87,6 +93,9 @@ final class AppModel {
     }
 
     func start() async {
+        // The main window's .task runs again whenever a window opens; start only once.
+        guard !started else { return }
+        started = true
         let loaded: [LibraryPhoto]
         do {
             loaded = try store.load()
@@ -138,10 +147,13 @@ final class AppModel {
         let host = SavedTV.load()?.host
         let reachable: Bool
         if let host { reachable = (try? await TVDeviceInfo.fetch(host: host, timeout: 3)) != nil } else { reachable = false }
+        if reachable || !tvState.isConnected { missedChecks = 0 } else { missedChecks += 1 }
         switch (reachable, tvState.isConnected) {
         case (true, false):
             await connect()
         case (false, true):
+            // A busy TV (mid-upload) can miss a 3 s check: wait for two misses, and never cut off a send.
+            guard missedChecks >= 2, !isSending else { return }
             // It went to sleep. Drop the connection quietly; queued work waits for it to come back.
             if let client { await client.connection.close() }
             client = nil
@@ -234,11 +246,14 @@ final class AppModel {
         originalMatches = []
         originalProgress = OriginalFinder.Progress(phase: "Starting", done: 0, total: 0)
         findTask = Task {
-            let matches = await Task.detached(priority: .userInitiated) {
+            let scan = Task.detached(priority: .userInitiated) {
                 await OriginalFinder.find(copies: ids, cacheURL: cache) { p in
                     Task { @MainActor in self.originalProgress = p }
                 }
-            }.value
+            }
+            // A detached task doesn't inherit cancellation: pass Stop through to the scan.
+            let matches = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+            guard !Task.isCancelled else { return }
             originalMatches = matches
             isFindingOriginals = false
         }
@@ -336,16 +351,26 @@ final class AppModel {
 
     /// Brings the library in line with the album: new photos in, edits picked up, removals handled.
     func syncAlbum(userInitiated: Bool) async {
-        guard let albumID, !isSyncingAlbum, !libraryUnreadable else { return }
+        guard let albumID, !libraryUnreadable else { return }
+        guard !isSyncingAlbum else { syncAgain = true; return }
         isSyncingAlbum = true
-        defer { isSyncingAlbum = false }
+        defer {
+            isSyncingAlbum = false
+            if syncAgain { syncAgain = false; scheduleAlbumSync() }
+        }
+        let snapshot = photos
         do {
             let result = try await PhotosAlbumSync.sync(albumID: albumID, store: store, library: photos + pendingRemovals,
                                                         skipped: albumSkipped)
             albumSkipped = result.skipped
             saveSkipped()
             albumTitle = result.albumTitle
-            for photo in result.updated { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
+            for photo in result.updated {
+                // Merge, so a crop chosen while the sync ran isn't overwritten by the version it started from.
+                guard let i = photos.firstIndex(where: { $0.id == photo.id }) else { continue }
+                let base = snapshot.first { $0.id == photo.id } ?? photos[i]
+                photos[i] = LibraryPhoto.merge(base: base, current: photos[i], incoming: photo)
+            }
             photos.append(contentsOf: result.imported)
             restorePendingRemovals(result.restored)
             if isMassRemoval(result.removed) {
@@ -467,6 +492,10 @@ final class AppModel {
     }
 
     func connect() async {
+        // Connecting runs refreshTV and tvAppeared, which use withClient: don't nest another connect.
+        guard !isConnecting else { return }
+        isConnecting = true
+        defer { isConnecting = false }
         tvState = .searching("Looking for your Frame…")
         if let client { await client.connection.close() }
         client = nil
@@ -483,9 +512,8 @@ final class AppModel {
             await refreshTV()
             await tvAppeared()
         } catch let failure as TVLocator.Failure {
-            if case .pairedTVUnreachable(let tv) = failure {
+            if case .pairedTVUnreachable = failure {
                 // The Frame drops off the network when its motion sensor turns the screen off.
-                _ = tv
                 tvState = .unavailable(asleepMessage)
             } else {
                 tvState = .unavailable(String(describing: failure))
@@ -504,9 +532,9 @@ final class AppModel {
         }
     }
 
-    /// Runs `body` against the TV, reconnecting once if the connection dropped.
-    /// Runs `body` against the TV. With `retry`, reconnects and tries once more if the connection had dropped
-    /// (not on timeouts: the TV may have acted on the first attempt). Never retry uploads, which aren't idempotent.
+    /// Runs `body` against the TV. With `retry`, tries once more if the connection had dropped; the client
+    /// reconnects by itself (not on timeouts: the TV may have acted on the first attempt). Never retry uploads,
+    /// which aren't idempotent.
     private func withClient<T>(retry: Bool = true, _ body: (ArtClient) async throws -> T) async throws -> T {
         if client == nil { await connect() }
         guard let client else { throw AppError("Not connected to the TV.") }
@@ -514,9 +542,7 @@ final class AppModel {
             return try await body(client)
         } catch let e as ArtError {
             guard retry, case .disconnected = e else { throw e }
-            await connect()
-            guard let again = self.client else { throw e }
-            return try await body(again)
+            return try await body(client)
         }
     }
 
@@ -549,17 +575,21 @@ final class AppModel {
 
     private func loadTVThumbnails() async {
         for item in tvItems where tvThumbnails[item.contentID] == nil {
-            guard let data = try? await withClient({ try await $0.thumbnail(item.contentID) }),
-                  let image = NSImage(data: data) else { continue }
-            tvThumbnails[item.contentID] = image
+            let data: Data
+            do {
+                data = try await withClient { try await $0.thumbnail(item.contentID) }
+            } catch ArtError.disconnected, ArtError.timedOut {
+                return  // the TV went away: the rest load next time it's back
+            } catch {
+                continue
+            }
+            if let image = NSImage(data: data) { tvThumbnails[item.contentID] = image }
         }
     }
 
     /// TV items with no library photo behind them.
     var unknownTVItems: [ContentItem] { tvItems.filter { photo(forTVItem: $0.contentID) == nil } }
 
-    /// Compares unknown TV items with library photos by perceptual hash and proposes links. Never links or
-    /// deletes anything by itself.
     /// Recognizes library photos that are already on the TV (SPEC §6): compares unmatched TV items with photos not
     /// yet on the TV, as sub-images, and records matches with the crop recovered from the TV copy. Only changes
     /// Inframy's records, never the TV. "Not the same photo" undoes a match.
@@ -657,7 +687,7 @@ final class AppModel {
         do { try store.save(photos + pendingRemovals) } catch { lastError = "Couldn't save the library: \(error)" }
     }
 
-    /// Imports files. `copy` for files that are only temporary (Photos drags, the Photos picker).
+    /// Imports files (the `INFRAMY_IMPORT` development hook). `copy` copies them into the library.
     func importFiles(_ urls: [URL], copy: Bool) async {
         let store = self.store
         var added: [LibraryPhoto] = []
@@ -699,14 +729,22 @@ final class AppModel {
         saveLibrary()
     }
 
+    func setSuggestedCenter(_ center: [Double], for id: UUID) {
+        guard let i = photos.firstIndex(where: { $0.id == id }) else { return }
+        photos[i].suggestedCenter = center
+        saveLibrary()
+    }
+
     func setChoice(_ choice: LibraryPhoto.Choice, for id: UUID) {
         guard let i = photos.firstIndex(where: { $0.id == id }) else { return }
         photos[i].choice = choice
         saveLibrary()
     }
 
+    /// Removes photos that don't follow the current album. Album photos are removed in Photos instead (removing
+    /// them here would only bring them back on the next sync), so they're ignored, whatever the caller.
     func removeFromLibrary(_ ids: Set<UUID>) {
-        photos.removeAll { ids.contains($0.id) }
+        photos.removeAll { ids.contains($0.id) && !($0.photosAlbumID != nil && $0.photosAlbumID == albumID) }
         saveLibrary()
     }
 
@@ -774,7 +812,14 @@ final class AppModel {
                         Task { @MainActor in self.apply(stage, to: jobID) }
                     }
                 }
-                update(updated)
+                if let i = photos.firstIndex(where: { $0.id == photo.id }) {
+                    // Only what the upload changed: a re-crop or album edit made meanwhile must survive.
+                    photos[i] = LibraryPhoto.merge(base: photo, current: photos[i], incoming: updated)
+                    saveLibrary()
+                } else if let cid = updated.tvContentID {
+                    // It left the album (or library) while uploading: take back the copy Inframy just made.
+                    _ = try? await withClient { try await $0.delete([cid]) }
+                }
                 setStage(job.id, .done(updated.tvContentID ?? ""))
                 sentAny = true
             } catch let e as ArtError {

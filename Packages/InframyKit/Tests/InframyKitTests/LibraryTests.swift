@@ -298,6 +298,22 @@ struct AlbumSyncTests {
         #expect(q.suggestedCenter == [0.45, 0.37578125])
     }
 
+    @Test func mergeKeepsEditsMadeDuringALongOperation() {
+        let base = albumPhoto("p")
+        // Matt re-cropped while the upload ran...
+        var current = base
+        let recrop = NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.703125)
+        current.choice = .crop(recrop)
+        // ...and the upload (started from `base`) reports the TV id and render key.
+        var incoming = base
+        incoming.tvContentID = "MY_F0100"
+        incoming.uploadedRenderKey = "old-render"
+        let merged = LibraryPhoto.merge(base: base, current: current, incoming: incoming)
+        #expect(merged.choice == .crop(recrop))           // the re-crop survives
+        #expect(merged.tvContentID == "MY_F0100")         // the upload is recorded
+        #expect(merged.status == .changedSinceUpload)     // and the new crop is still waiting to go out
+    }
+
     @Test func damagedLibraryThrowsInsteadOfLoadingEmpty() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("damaged-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

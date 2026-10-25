@@ -122,9 +122,8 @@ struct CropEditorView: View {
         // Compute the hint once per photo, off the main thread, and only move an untouched frame.
         if photo.suggestedCenter == nil, let image {
             let center = await Task.detached { CropSuggestion.center(for: CIImage(cgImage: image)) }.value
-            var updated = photo
-            updated.suggestedCenter = center.map { [$0.x, $0.y] } ?? [0.5, 0.5]
-            model.update(updated)
+            // Only the hint: the crop may have been accepted while this ran.
+            model.setSuggestedCenter(center.map { [$0.x, $0.y] } ?? [0.5, 0.5], for: photo.id)
             suggestion = center
             if case .undecided = photo.choice, let center {
                 geometry = CropGeometry(imageSize: photo.imageSize, center: center)
