@@ -91,6 +91,30 @@ public enum WakeOnLAN {
         return packet
     }
 
+    /// Wakes the TV and waits for it to answer: resends the packet every `resendEvery` (Wi-Fi drops broadcasts) for
+    /// the first `resendFor`, and checks `isUp` every `pollEvery` until it answers or `budget` runs out. From
+    /// motion-sensor sleep the art channel is ready once it answers (PROTOCOL.md, 2026-10-25).
+    public static func wakeUntilReachable(mac: String, budget: Duration = .seconds(30),
+                                          resendEvery: Duration = .seconds(5), resendFor: Duration = .seconds(15),
+                                          pollEvery: Duration = .milliseconds(1500),
+                                          send: @Sendable (String) throws -> Void = { try WakeOnLAN.wake(mac: $0) },
+                                          isUp: @Sendable () async -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var lastSent: ContinuousClock.Instant?
+        while clock.now - start < budget {
+            if Task.isCancelled { return false }
+            let elapsed = clock.now - start
+            if elapsed <= resendFor, lastSent.map({ clock.now - $0 >= resendEvery }) ?? true {
+                try? send(mac)
+                lastSent = clock.now
+            }
+            if await isUp() { return true }
+            try? await Task.sleep(for: pollEvery)
+        }
+        return false
+    }
+
     /// Broadcasts the magic packet to 255.255.255.255 on ports 9 and 7.
     public static func wake(mac: String) throws {
         let packet = try magicPacket(mac: mac)

@@ -139,9 +139,7 @@ struct TVStatusCard: View {
 
     private var menu: some View {
             Menu {
-                Button("Reconnect") { Task { await model.connect() } }
-                Button("Wake TV") { model.wake() }
-                    .disabled(SavedTV.load()?.wifiMAC == nil)
+                Button("Connect to TV") { Task { await model.connectNow() } }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -155,6 +153,7 @@ struct TVStatusCard: View {
         case .connected: return .green
         case .searching: return .yellow
         case .unavailable: return .red
+        case .away: return .secondary
         }
     }
 
@@ -163,6 +162,7 @@ struct TVStatusCard: View {
         case .connected: return model.tvName
         case .searching: return "Connecting…"
         case .unavailable: return "TV not reachable"
+        case .away: return "Away from home"
         }
     }
 
@@ -173,6 +173,7 @@ struct TVStatusCard: View {
             return "\(info.host) · API \(version) · \(shuffle)"
         case .searching(let message): return message
         case .unavailable(let message): return message
+        case .away: return "Connects when you're back on the TV's network"
         }
     }
 }

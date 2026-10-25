@@ -14,10 +14,11 @@ enum Prefs {
     static let legacyAlbumName = "albumName"
     static let shuffleMinutes = "shuffleMinutes"
     static let keepShuffleOn = "keepShuffleOn"
+    static let wakeOnOpen = "wakeOnOpen"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
-            shuffleMinutes: 15, keepShuffleOn: true, albumRemoval: "removeFromTV",
+            shuffleMinutes: 15, keepShuffleOn: true, wakeOnOpen: true, albumRemoval: "removeFromTV",
         ])
     }
 }
@@ -25,6 +26,7 @@ enum Prefs {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Prefs.keepShuffleOn) private var keepShuffleOn = true
+    @AppStorage(Prefs.wakeOnOpen) private var wakeOnOpen = true
     @State private var openAtLogin = LoginItem.isEnabled
 
     var body: some View {
@@ -35,6 +37,9 @@ struct SettingsView: View {
             Section("TV") {
                 Toggle("Keep the slideshow on", isOn: $keepShuffleOn)
                 Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do), at the interval it last had. Choose the interval from the shuffle menu in On the TV.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Wake the TV when I open Inframy", isOn: $wakeOnOpen)
+                Text("At home, opening Inframy or switching to it wakes the Frame if it's asleep (at most every 3 minutes). Away from home Inframy waits quietly.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let tv = SavedTV.load() {
                     LabeledContent("Paired TV", value: "\(tv.name.replacingOccurrences(of: "[TV] ", with: "")) · \(tv.host)")

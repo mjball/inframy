@@ -31,8 +31,13 @@ struct TVView: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again") { Task { await model.connect() } }
-                    Button("Wake TV") { model.wake() }
+                    Button("Try Again") { Task { await model.connectNow() } }
+                }
+            case .away:
+                ContentUnavailableView {
+                    Label("Away from home", systemImage: "house")
+                } description: {
+                    Text(AppModel.awayMessage)
                 }
             }
         }
@@ -283,7 +288,7 @@ struct SendQueueView: View {
 
     private func text(_ stage: AppModel.SendJob.Stage) -> String {
         switch stage {
-        case .waiting: return model.tvState.isConnected ? "Waiting" : "Waiting for the TV to wake up"
+        case .waiting: return model.tvState.isConnected ? "Waiting" : model.tvState == .away ? "Waiting until you're home" : "Waiting for the TV to wake up"
         case .rendering: return "Rendering 3840×2160…"
         case .uploading: return "Uploading…"
         case .replacing: return "Removing the old version from the TV…"

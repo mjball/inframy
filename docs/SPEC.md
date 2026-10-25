@@ -119,8 +119,15 @@ Dedup rules:
   shuffle shows them. No pool, no scheduled swaps. (Pool rotation was built in Phase 4 and removed.)
 - **Event-driven, not timed.** The Frame leaves the network while its screen sleeps (motion sensor). Inframy checks
   for it every 20 s (REST) and, when it appears, sends anything queued and checks the slideshow. Photos sent while it
-  sleeps wait in the queue ("Waiting for the TV to wake up"). Wake-on-LAN is a manual menu item only: from full
-  power-off it wakes the TV into the last HDMI input, which is no use (PROTOCOL.md).
+  sleeps wait in the queue ("Waiting for the TV to wake up").
+- **Auto-connect and wake (Matt, 2026-10-25).** No buttons to press in the normal case. Opening or switching to
+  Inframy, and pressing Send, connect to the TV and wake it with Wake-on-LAN if it's asleep, giving up after 30 s
+  (at most one automatic wake every 3 min; Settings → TV can turn waking on open off). Waking from motion-sensor
+  sleep works (PROTOCOL.md). The Mac waking, network changes and the 20 s check only connect, never wake. A failed
+  wake leaves one button, Try Again (wake and connect, no limit).
+- **Away from home.** The TV can only be reached from its own network. Inframy learns home as the router's hardware
+  address each time it connects (`HomeNetwork`) and, on any other network, shows a calm "Away from home" state:
+  no searching, no waking, queued photos wait until it's back home.
 - **Keep the slideshow on:** whenever the TV is awake (and every 15 min while it stays awake), turn My Photos
   shuffle back on if it stopped, with 2+ photos only (a 1-photo shuffle wedges this TV).
 - **Storage full:** there's no storage query. If the TV refuses an upload, Inframy stops the queue and tells Matt the
@@ -218,7 +225,8 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - [x] Menu bar agent (`MenuBarExtra`) + Open at login (`SMAppService`).
 - [x] Event-driven: queued sends and the slideshow check run when the TV reappears; nothing on a timer.
 - [x] Clear "TV is probably full" handling.
-- [x] Wake-on-LAN as a manual menu item / CLI `wake` only.
+- [x] Auto-connect on open/switch with a 30 s Wake-on-LAN attempt; away-from-home state (CLI `wake` too).
+- [ ] Verify auto-wake and the away state on the real TV and away from home.
 - [x] ~~Pool rotation~~ removed (Matt, 2026-10-24): the TV's shuffle rotates; Inframy uploads everything.
 - [ ] Verified on the real TV (pending Matt).
 
