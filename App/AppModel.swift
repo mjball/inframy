@@ -1,5 +1,6 @@
 import AppKit
 import InframyKit
+import Network
 import Observation
 import SwiftUI
 
@@ -10,6 +11,8 @@ final class AppModel {
         case searching(String)
         case connected(TVDeviceInfo, apiVersion: String)
         case unavailable(String)
+        /// Not on the TV's network (HomeNetwork): nothing to do until the Mac is back home.
+        case away
 
         var isConnected: Bool { if case .connected = self { return true } else { return false } }
     }
@@ -77,6 +80,12 @@ final class AppModel {
     @ObservationIgnored private var syncAgain = false
     @ObservationIgnored private var lastShuffleCheck = Date.distantPast
     @ObservationIgnored private var lastDiscoveryAttempt = Date.distantPast
+    @ObservationIgnored private var isWaking = false
+    @ObservationIgnored private var lastAutoWake = Date.distantPast
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var networkSettle: Task<Void, Never>?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var sawFirstPath = false
 
     init(store: LibraryStore = AppModel.defaultStore()) {
         Prefs.register()
@@ -123,9 +132,11 @@ final class AppModel {
         case "library": editingPhotoID = nil
         default: break
         }
-        await connect()
+        // Launched by hand (not as a login item): that's opening Inframy, so wake the TV if needed.
+        await autoConnect(wake: NSApp.isActive && wakeOnOpen)
         await syncAlbum(userInitiated: false)
         startPresenceLoop()
+        watchForChanges()
     }
 
     // MARK: TV presence (SPEC §7)
@@ -144,6 +155,8 @@ final class AppModel {
     }
 
     func presenceTick() async {
+        // A wake in progress does its own checking.
+        guard !isWaking else { return }
         let host = SavedTV.load()?.host
         let reachable: Bool
         if let host { reachable = (try? await TVDeviceInfo.fetch(host: host, timeout: 3)) != nil } else { reachable = false }
@@ -161,6 +174,15 @@ final class AppModel {
         case (true, true):
             if Date().timeIntervalSince(lastShuffleCheck) > 15 * 60 { await reassertShuffle() }
         case (false, false):
+            // Away from home there's nothing to find; back home, connect (without waking: no one asked).
+            if SavedTV.load() != nil, await location() == .away {
+                tvState = .away
+                return
+            }
+            if case .away = tvState {
+                await connect()
+                return
+            }
             // Maybe its IP changed (or it was never paired): rediscover now and then.
             if Date().timeIntervalSince(lastDiscoveryAttempt) > 180 {
                 lastDiscoveryAttempt = Date()
@@ -177,8 +199,109 @@ final class AppModel {
     }
 
     var asleepMessage: String {
-        let name = SavedTV.load()?.name.replacingOccurrences(of: "[TV] ", with: "") ?? "The TV"
-        return "\(name) is asleep. It wakes when someone walks in; anything you send waits until then."
+        "\(savedTVName) is asleep. It wakes when someone walks in; anything you send waits until then."
+    }
+
+    static let awayMessage = "You're not on the TV's network. Inframy connects when you're back home; anything you send waits until then."
+
+    var didNotWakeMessage: String {
+        "\(savedTVName) didn't wake up. It may be switched off, or Power On with Mobile is off in its settings. "
+            + "Anything you send waits until it's back."
+    }
+
+    private var savedTVName: String {
+        SavedTV.load()?.name.replacingOccurrences(of: "[TV] ", with: "") ?? "The TV"
+    }
+
+    // MARK: Auto-connect
+
+    /// Wake the TV when Inframy is opened or brought to the front (Settings → TV).
+    var wakeOnOpen: Bool { UserDefaults.standard.bool(forKey: Prefs.wakeOnOpen) }
+
+    /// Connects if not connected. `wake` sends Wake-on-LAN first when the TV doesn't answer and waits up to 30 s for
+    /// it: only for things the user just did (opening or switching to Inframy, Send), at most once every 3 minutes,
+    /// so flipping between apps doesn't keep lighting up the living room. `userAsked` (Try Again, Connect to TV)
+    /// skips both the away-from-home check and that limit.
+    func autoConnect(wake: Bool, userAsked: Bool = false) async {
+        guard !tvState.isConnected, !isConnecting, !isWaking else { return }
+        let saved = SavedTV.load()
+        if !userAsked, saved != nil, await location() == .away {
+            tvState = .away
+            return
+        }
+        var wakeFailed = false
+        if wake, let saved, let mac = saved.wifiMAC,
+           userAsked || Date().timeIntervalSince(lastAutoWake) > 180 {
+            let host = saved.host
+            if (try? await TVDeviceInfo.fetch(host: host, timeout: 2)) == nil {
+                lastAutoWake = Date()
+                isWaking = true
+                tvState = .searching("Waking \(savedTVName)…")
+                let up = await WakeOnLAN.wakeUntilReachable(mac: mac) {
+                    (try? await TVDeviceInfo.fetch(host: host, timeout: 1.5)) != nil
+                }
+                isWaking = false
+                wakeFailed = !up
+            }
+        }
+        guard !tvState.isConnected else { return }
+        // Even after a failed wake: connect() also looks for the TV at a new address.
+        await connect()
+        if wakeFailed, tvState == .unavailable(asleepMessage) { tvState = .unavailable(didNotWakeMessage) }
+    }
+
+    /// Try Again and Connect to TV: reconnect if connected, else connect, waking the TV.
+    func connectNow() async {
+        if tvState.isConnected { await connect() } else { await autoConnect(wake: true, userAsked: true) }
+    }
+
+    private func location() async -> HomeNetwork.Location {
+        HomeNetwork.classify(await HomeNetwork.current(), known: SavedTV.load()?.homeNetworks ?? [])
+    }
+
+    /// Reconnects when Inframy comes to the front, the Mac wakes, or the network changes.
+    private func watchForChanges() {
+        guard observers.isEmpty, ProcessInfo.processInfo.environment["INFRAMY_SNAPSHOT"] == nil else { return }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                await self.autoConnect(wake: self.wakeOnOpen)
+            }
+        })
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            // The Mac waking (maybe in the night, maybe somewhere else) isn't anyone asking for the TV: don't wake it.
+            Task { @MainActor in self?.networkChanged() }
+        })
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                // The first update is the network at launch, which start() already handled.
+                if self.sawFirstPath { self.networkChanged() } else { self.sawFirstPath = true }
+            }
+        }
+        monitor.start(queue: .main)
+        pathMonitor = monitor
+    }
+
+    /// Joining a network sends several path updates while it settles; act once it's quiet for 2 s.
+    private func networkChanged() {
+        networkSettle?.cancel()
+        networkSettle = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            if self.tvState.isConnected {
+                // Left home with the lid open (or reopened it somewhere else): the connection is already dead.
+                guard SavedTV.load() != nil, await self.location() == .away else { return }
+                if let client = self.client { await client.connection.close() }
+                self.client = nil
+                self.tvState = .away
+                return
+            }
+            await self.autoConnect(wake: false)
+        }
     }
 
     /// 2020 Frames sometimes stop the slideshow; turn it back on if My Photos has something to show.
@@ -507,6 +630,10 @@ final class AppModel {
             let c = ArtClient(connection: connection)
             let version = try await c.apiVersion()
             try await TVLocator.remember(info, connection: connection)
+            // Wherever the TV answers is home (HomeNetwork).
+            if var saved = SavedTV.load(), saved.id == info.id, saved.learnHomeNetwork(await HomeNetwork.current()) {
+                try? saved.save()
+            }
             client = c
             tvState = .connected(info, apiVersion: version)
             await refreshTV()
@@ -520,15 +647,6 @@ final class AppModel {
             }
         } catch {
             tvState = .unavailable(String(describing: error))
-        }
-    }
-
-    func wake() {
-        guard let mac = SavedTV.load()?.wifiMAC else { return }
-        try? WakeOnLAN.wake(mac: mac)
-        Task {
-            try? await Task.sleep(for: .seconds(8))
-            await connect()
         }
     }
 
@@ -779,8 +897,8 @@ final class AppModel {
             guard let photo = photos.first(where: { $0.id == id }), photo.renderSpec != nil else { continue }
             jobs.append(SendJob(photoID: id, name: photo.displayName))
         }
-        // While the TV sleeps, jobs wait; they go out when it appears.
-        if tvState.isConnected { startQueue() }
+        // While the TV sleeps, jobs wait; they go out when it appears. Pressing Send is asking for the TV: wake it.
+        if tvState.isConnected { startQueue() } else { Task { await autoConnect(wake: true) } }
     }
 
     private func startQueue() {

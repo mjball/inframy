@@ -23,9 +23,7 @@ struct MenuBarContent: View {
         Button("Turn Shuffle On") { Task { await model.setShuffle(on: true) } }
             .disabled(!model.tvState.isConnected || model.slideshow?.isOn == true)
         Divider()
-        Button("Reconnect") { Task { await model.connect() } }
-        Button("Wake TV") { model.wake() }
-            .disabled(SavedTV.load()?.wifiMAC == nil)
+        Button("Connect to TV") { Task { await model.connectNow() } }
         Divider()
         SettingsLink { Text("Settings…") }
         Button("Quit Inframy") { NSApp.terminate(nil) }
@@ -37,6 +35,7 @@ struct MenuBarContent: View {
         case .connected: return "\(model.tvName): connected"
         case .searching: return "Connecting to the TV…"
         case .unavailable: return "TV not reachable"
+        case .away: return "Away from home"
         }
     }
 }

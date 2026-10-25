@@ -33,11 +33,10 @@ struct InframyApp: App {
                     .disabled(model.albumID == nil)
             }
             CommandMenu("TV") {
-                Button("Reconnect") { Task { await model.connect() } }
+                Button("Connect to TV") { Task { await model.connectNow() } }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Refresh") { Task { await model.refreshTV() } }
                     .keyboardShortcut("r")
-                Button("Wake TV") { model.wake() }
                 Divider()
                 Button("Send Ready Photos") { let ids = model.readyToSend.map(\.id); model.send(ids) }
                     .keyboardShortcut(.return, modifiers: .command)

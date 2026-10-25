@@ -12,6 +12,8 @@ public struct SavedTV: Codable, Sendable, Equatable {
     public var wifiMAC: String?
     /// SHA-256 of the TV's TLS certificate, pinned after the first connection.
     public var certificateFingerprint: String?
+    /// Networks Inframy has reached the TV from (learned on each connection). See `HomeNetwork`.
+    public var homeNetworks: [HomeNetwork.Fingerprint]?
 
     public init(info: TVDeviceInfo, certificateFingerprint: String? = nil) {
         id = info.id
