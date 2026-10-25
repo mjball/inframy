@@ -7,6 +7,9 @@ xcodebuild -scheme Inframy -configuration Release build
 swift test --package-path Packages/InframyKit
 ```
 
+To install, run `tools/install.sh`: it builds Release, moves it to `/Applications/Inframy.app` (the only copy,
+so Spotlight shows one Inframy) and reopens it.
+
 ## Code signing (why permissions stick)
 
 macOS remembers Photos and local-network permissions per app *signature*. Ad hoc builds get a new signature

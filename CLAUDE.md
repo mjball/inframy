@@ -53,7 +53,13 @@ xcodegen generate
 xcodebuild -scheme Inframy -configuration Debug build
 swift test --package-path Packages/InframyKit
 swift run --package-path Packages/InframyKit inframy-cli info --host <TV_IP>
+tools/install.sh             # build Release and install it as /Applications/Inframy.app
 ```
+
+**Installing:** always use `tools/install.sh`. `/Applications/Inframy.app` must be the only Inframy.app on the Mac
+(Matt doesn't want two in Spotlight): the script moves the build there and deletes stray copies. Never copy a build
+anywhere else or leave one in `build/`. Several Claude sessions may work on Inframy at once: tell the others before
+installing or merging to main.
 
 ## Environment
 
