@@ -85,6 +85,20 @@ public struct LibraryPhoto: Codable, Identifiable, Sendable, Equatable, Hashable
     /// Already 16:9: no crop to choose, only resizing.
     public var isPanelShaped: Bool { abs(aspect - Panel.aspect) / Panel.aspect < 0.005 }
 
+    /// Applies what a long-running operation changed (`incoming` vs. the `base` it started from) onto `current`,
+    /// so edits made meanwhile (a re-crop during an upload, an album edit during a crop suggestion) survive.
+    public static func merge(base: LibraryPhoto, current: LibraryPhoto, incoming: LibraryPhoto) -> LibraryPhoto {
+        var out = current
+        func take<V: Equatable>(_ kp: WritableKeyPath<LibraryPhoto, V>) {
+            if incoming[keyPath: kp] != base[keyPath: kp] { out[keyPath: kp] = incoming[keyPath: kp] }
+        }
+        take(\.displayName); take(\.source); take(\.sha256); take(\.pixelWidth); take(\.pixelHeight)
+        take(\.choice); take(\.suggestedCenter); take(\.tvContentID); take(\.uploadedRenderKey); take(\.addedAt)
+        take(\.photosLocalIdentifier); take(\.photosAlbumID); take(\.photosOriginalID); take(\.photosModifiedAt)
+        take(\.pendingRemoval); take(\.sharpen); take(\.recognizedOnTV); take(\.notSameAs)
+        return out
+    }
+
     /// A crop narrower than the panel in source pixels would have to be upscaled, which Inframy never does.
     public static func cropIsLargeEnough(_ rect: NormalizedRect, imageSize: CGSize) -> Bool {
         rect.width * imageSize.width >= Double(Panel.width) - 1
