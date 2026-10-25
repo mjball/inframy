@@ -38,6 +38,13 @@ public struct ContentItem: Sendable, Equatable, Hashable {
 
     /// Personal uploads have ids like `MY_F0001` (this TV) or `MY-F0020` (other firmware).
     public var isPersonal: Bool { contentID.hasPrefix("MY_") || contentID.hasPrefix("MY-") }
+
+    /// A content id made safe to use as a file name: ids come from the TV, so never trust them in paths.
+    public static func fileName(for contentID: String) -> String {
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+        let cleaned = String(contentID.map { allowed.contains($0) ? $0 : "_" }.prefix(64))
+        return cleaned.isEmpty ? "item" : cleaned
+    }
 }
 
 public struct CurrentArtwork: Sendable, Equatable {

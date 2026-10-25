@@ -156,7 +156,7 @@ struct Thumbs: AsyncParsableCommand {
         for id in targets {
             do {
                 let data = try await client.thumbnail(id)
-                let url = dir.appendingPathComponent("\(id).jpg")
+                let url = dir.appendingPathComponent("\(ContentItem.fileName(for: id)).jpg")
                 try data.write(to: url)
                 print("\(url.path)  (\(data.count) bytes)")
             } catch {

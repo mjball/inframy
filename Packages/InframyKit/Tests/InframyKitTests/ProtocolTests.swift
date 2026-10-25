@@ -129,3 +129,20 @@ struct ProtocolTests {
         #expect(throws: (any Error).self) { try WakeOnLAN.magicPacket(mac: "nope") }
     }
 }
+
+@Suite struct HostileInputTests {
+    @Test func hugeNumbersDontCrash() throws {
+        let json = try JSON.parse(Data(#"{"id": 1e300, "port": -1e19, "n": 42}"#.utf8))
+        #expect(json["id"]?.stringValue != nil)
+        #expect(json["id"]?.intValue == nil)
+        #expect(json["port"]?.intValue == nil)
+        #expect(json["n"]?.stringValue == "42")
+    }
+
+    @Test func contentIDsAreSafeFileNames() {
+        #expect(ContentItem.fileName(for: "MY_F0004") == "MY_F0004")
+        #expect(ContentItem.fileName(for: "../../etc/passwd") == "______etc_passwd")
+        #expect(!ContentItem.fileName(for: "a/b").contains("/"))
+        #expect(ContentItem.fileName(for: "") == "item")
+    }
+}

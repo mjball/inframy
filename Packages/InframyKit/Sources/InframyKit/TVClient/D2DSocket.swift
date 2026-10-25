@@ -55,20 +55,31 @@ public enum D2DSocket {
         guard let key = endpoint.key else { throw ArtError.unexpectedResponse("conn_info has no key") }
         let conn = try await Connection.open(endpoint, timeout: timeout)
         defer { conn.close() }
-        try await conn.send(frame(header: uploadHeader(fileLength: file.count, fileType: fileType, key: key), body: file))
+        let framed = frame(header: uploadHeader(fileLength: file.count, fileType: fileType, key: key), body: file)
+        // The TV can drop off the network mid-transfer (its screen sleeps); don't wait forever.
+        try await withTimeout(timeout, "the upload to finish", onTimeout: { conn.close() }) {
+            try await conn.send(framed)
+        }
     }
 
     /// Receives one file (thumbnails). Returns the header (`fileID`, `fileType`, `num`, `total`...) and bytes.
     public static func receive(from endpoint: Endpoint, timeout: Duration) async throws -> (header: JSON, data: Data) {
         let conn = try await Connection.open(endpoint, timeout: timeout)
         defer { conn.close() }
+        // Closing the socket on timeout fails the pending read, so a stalled TV can't hang the caller.
+        return try await withTimeout(timeout, "the TV to send the file", onTimeout: { conn.close() }) {
+            try await read(conn)
+        }
+    }
+
+    private static func read(_ conn: Connection) async throws -> (header: JSON, data: Data) {
         let lenBytes = try await conn.read(exactly: 4)
         let headerLength = lenBytes.reduce(0) { ($0 << 8) | Int($1) }
         guard headerLength > 0, headerLength < 1_000_000 else {
             throw ArtError.unexpectedResponse("d2d header length \(headerLength)")
         }
         let header = try JSON.parse(try await conn.read(exactly: headerLength))
-        guard let length = header["fileLength"]?.intValue, length >= 0 else {
+        guard let length = header["fileLength"]?.intValue, length >= 0, length < 200_000_000 else {
             throw ArtError.unexpectedResponse("d2d header without fileLength")
         }
         return (header, try await conn.read(exactly: length))
