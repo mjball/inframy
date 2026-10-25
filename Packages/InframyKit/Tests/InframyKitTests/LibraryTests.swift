@@ -135,7 +135,7 @@ struct LibraryStoreTests {
         photo.suggestedCenter = [0.5, 0.48]
         photo.addedAt = Date(timeIntervalSince1970: 1_792_700_000)  // ISO 8601 keeps whole seconds
         try store.save([photo])
-        #expect(store.load() == [photo])
+        #expect(try store.load() == [photo])
     }
 
     @Test func statusTracksCropChangesAfterUpload() throws {
@@ -158,12 +158,13 @@ struct LibraryStoreTests {
 /// The send flow end to end against the fake TV: render, upload over d2d, replace the old TV copy.
 @Suite(.serialized)
 struct PhotoSenderTests {
-    @Test func sendsAndReplacesOldVersion() async throws {
+    /// A recognized TV copy (not uploaded by Inframy) is never deleted when the photo is re-sent.
+    @Test(arguments: [false, true]) func sendsAndReplacesOldVersion(recognized: Bool) async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("inframy-send-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("p.jpg")
-        try TestImage.jpeg(width: 2000, height: 1500, colorSpace: .sRGB) { ctx, w, h in
+        try TestImage.jpeg(width: 4000, height: 3000, colorSpace: .sRGB) { ctx, w, h in
             ctx.setFillColor(red: 0.3, green: 0.4, blue: 0.9, alpha: 1)
             ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         }.write(to: file)
@@ -171,6 +172,7 @@ struct PhotoSenderTests {
         guard case .imported(var photo) = try store.importPhoto(at: file, copy: false, existing: [], minimumSize: .zero) else { return }
         photo.choice = .crop(NormalizedRect(x: 0, y: 0.125, width: 1, height: 0.75))
         photo.tvContentID = "MY_F0001"  // an older version is on the TV
+        if recognized { photo.recognizedOnTV = true }
 
         let tvBox = Box<FakeTV>()
         let idBox = Box<String>()
@@ -199,9 +201,15 @@ struct PhotoSenderTests {
 
         #expect(updated.tvContentID == "MY_F0002")
         #expect(updated.status == .onTV)
-        #expect(tv.requests.map(\.name) == ["send_image", "delete_image_list"])
-        #expect(tv.requests.last?.params["content_id_list"]?.arrayValue?.first?["content_id"] == "MY_F0001")
-        #expect(stages.value == [.rendering, .uploading, .replacing, .done(contentID: "MY_F0002")])
+        #expect(updated.recognizedOnTV == nil)
+        if recognized {
+            #expect(tv.requests.map(\.name) == ["send_image"])
+            #expect(stages.value == [.rendering, .uploading, .done(contentID: "MY_F0002")])
+        } else {
+            #expect(tv.requests.map(\.name) == ["send_image", "delete_image_list"])
+            #expect(tv.requests.last?.params["content_id_list"]?.arrayValue?.first?["content_id"] == "MY_F0001")
+            #expect(stages.value == [.rendering, .uploading, .replacing, .done(contentID: "MY_F0002")])
+        }
 
         // The bytes the TV got are a 3840×2160 JPEG.
         let received = d2d.received
@@ -209,6 +217,18 @@ struct PhotoSenderTests {
         let jpeg = received.suffix(from: 4 + headerLength)
         let decoded = try TestImage.decode(Data(jpeg))
         #expect(decoded.image.width == 3840 && decoded.image.height == 2160)
+    }
+
+    @Test func refusesCropsThatWouldBeUpscaled() async throws {
+        // 3000 source pixels wide would be stretched to 3840.
+        let photo = LibraryPhoto(id: UUID(), displayName: "x", source: .copy(filename: "x.jpg"), sha256: "s",
+                                 pixelWidth: 6000, pixelHeight: 4000,
+                                 choice: .crop(NormalizedRect(x: 0, y: 0, width: 0.5, height: 0.421875)),
+                                 suggestedCenter: nil, tvContentID: nil, uploadedRenderKey: nil, addedAt: Date())
+        let tv = try await FakeTV { _, _ in [] }
+        defer { tv.stop() }
+        await #expect(throws: PhotoSender.SendError.self) { _ = try await PhotoSender().send(photo, via: tv.client()) }
+        #expect(tv.requests.isEmpty)
     }
 
     @Test func refusesUndecidedPhotos() async throws {
@@ -252,6 +272,42 @@ struct AlbumSyncTests {
         #expect(d.new == ["brand-new"])
         #expect(d.edited == ["edited"])
         #expect(d.removed == [gone.id])
+        #expect(d.restored.isEmpty)
+    }
+
+    @Test func diffRestoresPendingRemovalsBackInTheAlbum() {
+        var back = albumPhoto("back")
+        back.pendingRemoval = true
+        var stillGone = albumPhoto("still-gone")
+        stillGone.pendingRemoval = true
+        let d = PhotosAlbumSync.diff(album: [.init(id: "back", modified: Date(timeIntervalSince1970: 100))],
+                                     albumID: "ALBUM", library: [back, stillGone])
+        #expect(d.restored == [back.id])
+        #expect(d.new.isEmpty && d.removed.isEmpty)
+    }
+
+    @Test func recoveredCropsAreNeverUpscaled() {
+        var p = albumPhoto("p")  // 5000×4000
+        let big = NormalizedRect(x: 0, y: 0, width: 0.8, height: 0.5625)    // 4000 px wide
+        p.setRecoveredCrop(big)
+        #expect(p.choice == .crop(big))
+        var q = albumPhoto("q")
+        let small = NormalizedRect(x: 0.2, y: 0.2, width: 0.5, height: 0.3515625)  // 2500 px wide
+        q.setRecoveredCrop(small)
+        #expect(q.choice == .undecided)
+        #expect(q.suggestedCenter == [0.45, 0.37578125])
+    }
+
+    @Test func damagedLibraryThrowsInsteadOfLoadingEmpty() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("damaged-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = LibraryStore(directory: dir)
+        #expect(try store.load().isEmpty)  // no file yet: a new, empty library
+        try Data("[{\"id\": \"trunc".utf8).write(to: dir.appendingPathComponent("library.json"))
+        #expect(throws: (any Error).self) { _ = try store.load() }
+        let backup = store.backUpUnreadableLibrary()
+        #expect(backup.map { FileManager.default.fileExists(atPath: $0.path) } == true)
     }
 
     @Test func libraryDecodesWithoutNewFields() throws {
@@ -264,7 +320,7 @@ struct AlbumSyncTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data(json.utf8).write(to: dir.appendingPathComponent("library.json"))
-        let photos = LibraryStore(directory: dir).load()
+        let photos = try LibraryStore(directory: dir).load()
         #expect(photos.count == 1)
         #expect(photos.first?.photosLocalIdentifier == nil && photos.first?.sharpen == nil)
     }
@@ -317,10 +373,10 @@ struct MinimumSizeTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data(json.utf8).write(to: dir.appendingPathComponent("library.json"))
         let store = LibraryStore(directory: dir)
-        let photos = store.load()
+        let photos = try store.load()
         #expect(photos.map(\.choice) == [.undecided, .crop(NormalizedRect(x: 0, y: 0.1, width: 1, height: 0.75))])
         try store.save(photos)
-        #expect(store.load() == photos)
+        #expect(try store.load() == photos)
     }
 
     @Test func cropCantZoomPastPanelResolution() {

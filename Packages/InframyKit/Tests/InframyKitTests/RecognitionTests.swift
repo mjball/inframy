@@ -108,7 +108,8 @@ struct RecognitionTests {
     }
 
     @Test func applyRecoversCropAndRejectUndoes() {
-        let p = photo("x")
+        var p = photo("x")
+        (p.pixelWidth, p.pixelHeight) = (5000, 3750)  // big enough for a full-resolution crop
         let match = Recognition.Match(photoID: p.id, contentID: "MY_F0004",
                                       choice: .crop(NormalizedRect(x: 0, y: 0.155, width: 1, height: 0.75)), score: 0.99)
         let on = Recognition.apply(match, to: p)

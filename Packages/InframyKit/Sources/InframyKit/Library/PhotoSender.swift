@@ -17,20 +17,27 @@ public struct PhotoSender: Sendable {
     public enum SendError: Error, CustomStringConvertible {
         case notDecided
         case missingOriginal(String)
+        case cropTooSmall(String)
 
         public var description: String {
             switch self {
-            case .notDecided: return "Choose a crop (or Fit) before sending."
+            case .notDecided: return "Choose a crop before sending."
+            case .cropTooSmall(let name):
+                return "The crop for \(name) is smaller than the TV's 3840 pixels and would be upscaled. Re-crop it."
             case .missingOriginal(let name): return "Can't find the original of \(name). Was it moved or deleted?"
             }
         }
     }
 
     /// Renders (cached), uploads, and returns the updated photo. If the photo was already on the TV with a different
-    /// crop, the old TV copy is deleted after the new one is in. Only ever deletes items this library uploaded.
+    /// crop, the old TV copy is deleted after the new one is in, but only if Inframy uploaded it: a copy that was
+    /// recognized on the TV (`recognizedOnTV`) is left there, since Inframy never deletes what it didn't upload.
     public func send(_ photo: LibraryPhoto, via client: ArtClient,
                      progress: @Sendable (Stage) -> Void = { _ in }) async throws -> LibraryPhoto {
         guard let spec = photo.renderSpec, let key = photo.renderKey else { throw SendError.notDecided }
+        if case .crop(let rect) = photo.choice, !LibraryPhoto.cropIsLargeEnough(rect, imageSize: photo.imageSize) {
+            throw SendError.cropTooSmall(photo.displayName)
+        }
         guard let source = store.url(for: photo) else { throw SendError.missingOriginal(photo.displayName) }
         progress(.rendering)
         let cache = self.cache
@@ -41,12 +48,13 @@ public struct PhotoSender: Sendable {
         let contentID = try await client.upload(jpeg: try Data(contentsOf: rendered), matte: "none")
 
         var updated = photo
-        if let old = photo.tvContentID, old != contentID {
+        if let old = photo.tvContentID, old != contentID, photo.recognizedOnTV != true {
             progress(.replacing)
             _ = try? await client.delete([old])
         }
         updated.tvContentID = contentID
         updated.uploadedRenderKey = key
+        updated.recognizedOnTV = nil  // this copy is Inframy's own
         progress(.done(contentID: contentID))
         return updated
     }

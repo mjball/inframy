@@ -223,7 +223,7 @@ extension PhotosAlbumSync {
         // crop editor centered on where the copy was.
         let cropAspect = match.crop.width * Double(photo.pixelWidth) / (match.crop.height * Double(photo.pixelHeight))
         if abs(cropAspect - Panel.aspect) / Panel.aspect < 0.02 {
-            photo.choice = .crop(match.crop)
+            photo.setRecoveredCrop(match.crop)
         } else {
             photo.choice = .undecided
             photo.suggestedCenter = [match.crop.x + match.crop.width / 2, match.crop.y + match.crop.height / 2]

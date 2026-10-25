@@ -68,6 +68,8 @@ public enum PhotosAlbumSync {
         public var edited: [String] = []
         /// Library photos (from this album) that are no longer in it.
         public var removed: [UUID] = []
+        /// Photos waiting to be removed from the TV that are back in the album: keep them after all.
+        public var restored: [UUID] = []
     }
 
     public static func diff(album: [Asset], albumID: String, library: [LibraryPhoto]) -> Diff {
@@ -81,6 +83,10 @@ public enum PhotosAlbumSync {
                 d.edited.append(asset.id)
             }
         }
+        d.restored = library
+            .filter { $0.pendingRemoval == true && $0.photosAlbumID == albumID }
+            .filter { $0.photosLocalIdentifier.map(inAlbum.contains) ?? false }
+            .map(\.id)
         d.removed = library
             .filter { $0.photosAlbumID == albumID && $0.pendingRemoval != true }
             .filter { $0.photosLocalIdentifier.map { !inAlbum.contains($0) } ?? false }
@@ -94,6 +100,8 @@ public enum PhotosAlbumSync {
         /// Existing library photos that changed: re-imported edits, or matched to an album photo by content.
         public var updated: [LibraryPhoto] = []
         public var removed: [UUID] = []
+        /// Pending removals that are back in the album.
+        public var restored: [UUID] = []
         /// Album photos too small for the TV (carried over from earlier syncs while unchanged).
         public var skipped: [SkippedPhoto] = []
         /// Other problems (export failed, unreadable file).
@@ -166,7 +174,8 @@ public enum PhotosAlbumSync {
         let skipIDs = Set(stillSkipped.map(\.assetID))
         diff.new.removeAll { skipIDs.contains($0) }
 
-        var result = Result(albumTitle: album.localizedTitle ?? "album", removed: diff.removed, skipped: stillSkipped)
+        var result = Result(albumTitle: album.localizedTitle ?? "album", removed: diff.removed, restored: diff.restored,
+                            skipped: stillSkipped)
         var known = library
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("InframyAlbum-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)

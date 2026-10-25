@@ -46,6 +46,15 @@ final class AppModel {
     var lastError: String?
     var isRefreshingTV = false
     var isSyncingAlbum = false
+    /// library.json exists but couldn't be decoded: don't sync or save, so it's never overwritten.
+    var libraryUnreadable = false
+    /// A sync found many photos gone from the album at once; they wait here until Matt confirms.
+    var massRemovalPrompt: MassRemoval?
+
+    struct MassRemoval: Equatable {
+        let ids: [UUID]
+        let albumTitle: String
+    }
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored private let sender: PhotoSender
@@ -78,7 +87,17 @@ final class AppModel {
     }
 
     func start() async {
-        let loaded = store.load()
+        let loaded: [LibraryPhoto]
+        do {
+            loaded = try store.load()
+        } catch {
+            // Never treat a damaged library as empty: that would re-import everything and save over the crops.
+            libraryUnreadable = true
+            let backup = store.backUpUnreadableLibrary()
+            lastError = "Inframy couldn't read its library (\(error.localizedDescription)). Nothing will be saved or "
+                + "synced until it's fixed." + (backup.map { " A copy is at \($0.path)." } ?? "")
+            return
+        }
         photos = loaded.filter { $0.pendingRemoval != true }
         pendingRemovals = loaded.filter { $0.pendingRemoval == true }
         loadSkipped()
@@ -154,15 +173,16 @@ final class AppModel {
     func reassertShuffle() async {
         guard tvState.isConnected, UserDefaults.standard.bool(forKey: Prefs.keepShuffleOn) else { return }
         lastShuffleCheck = Date()
+        // Change nothing unless both reads worked: a timed-out list must not look like "no photos".
         guard let status = try? await withClient({ try await $0.slideshowStatus() }) else { return }
         slideshow = status
-        let personal = (try? await withClient { try await $0.contentList() }) ?? []
-        // A single-photo shuffle wedged Matt's 2020 Frame (docs/PROTOCOL.md): only shuffle two or more,
-        // and switch off a shuffle that's down to one.
-        if personal.count >= 2, !(status.isOn && status.categoryID == ArtProtocol.personalCategory) {
+        guard let personal = try? await withClient({ try await $0.contentList() }) else { return }
+        if status.isOn {
+            // Leave a slideshow someone chose on the TV alone, except a My Photos shuffle that's down to one photo,
+            // which wedges this TV (docs/PROTOCOL.md).
+            if personal.count < 2, status.categoryID == ArtProtocol.personalCategory { await setShuffle(on: false) }
+        } else if personal.count >= 2 {
             await setShuffle(on: true)
-        } else if personal.count < 2, status.isOn, status.categoryID == ArtProtocol.personalCategory {
-            await setShuffle(on: false)
         }
     }
 
@@ -316,7 +336,7 @@ final class AppModel {
 
     /// Brings the library in line with the album: new photos in, edits picked up, removals handled.
     func syncAlbum(userInitiated: Bool) async {
-        guard let albumID, !isSyncingAlbum else { return }
+        guard let albumID, !isSyncingAlbum, !libraryUnreadable else { return }
         isSyncingAlbum = true
         defer { isSyncingAlbum = false }
         do {
@@ -327,7 +347,14 @@ final class AppModel {
             albumTitle = result.albumTitle
             for photo in result.updated { if let i = photos.firstIndex(where: { $0.id == photo.id }) { photos[i] = photo } }
             photos.append(contentsOf: result.imported)
-            handleAlbumRemovals(result.removed)
+            restorePendingRemovals(result.restored)
+            if isMassRemoval(result.removed) {
+                // An album that suddenly reads as (nearly) empty is more likely a Photos glitch than Matt's intent.
+                massRemovalPrompt = MassRemoval(ids: result.removed, albumTitle: result.albumTitle)
+            } else {
+                massRemovalPrompt = nil  // the album recovered (or Matt removed just a few)
+                handleAlbumRemovals(result.removed)
+            }
             saveLibrary()
             lastAlbumSync = Date()
             UserDefaults.standard.set(lastAlbumSync, forKey: Prefs.lastAlbumSync)
@@ -346,7 +373,44 @@ final class AppModel {
         }
     }
 
+    /// More than a handful of photos, and at least half of the album's photos, gone in one sync.
+    private func isMassRemoval(_ ids: [UUID]) -> Bool {
+        guard ids.count > 5 else { return false }
+        let fromAlbum = photos.filter { $0.photosAlbumID == albumID }.count
+        return Double(ids.count) >= Double(fromAlbum) / 2
+    }
+
+    /// Matt's answer to the mass-removal prompt: remove them (from the TV too, per the removal setting) or keep them.
+    func resolveMassRemoval(remove: Bool) async {
+        guard let prompt = massRemovalPrompt else { return }
+        massRemovalPrompt = nil
+        if remove {
+            handleAlbumRemovals(prompt.ids)
+            saveLibrary()
+            await processPendingRemovals()
+        } else {
+            // Keep them as ordinary library photos, still on the TV; they no longer follow the album.
+            for id in prompt.ids {
+                guard let i = photos.firstIndex(where: { $0.id == id }) else { continue }
+                photos[i].photosAlbumID = nil
+                photos[i].photosLocalIdentifier = nil
+            }
+            saveLibrary()
+        }
+    }
+
+    /// Photos put back in the album before the TV woke up to delete their copy: keep them.
+    private func restorePendingRemovals(_ ids: [UUID]) {
+        for id in ids {
+            guard let i = pendingRemovals.firstIndex(where: { $0.id == id }) else { continue }
+            var photo = pendingRemovals.remove(at: i)
+            photo.pendingRemoval = nil
+            photos.append(photo)
+        }
+    }
+
     /// Photos that left the album: off the TV too (unless Matt chose to keep them), then out of the library.
+    /// A copy Inframy only recognized on the TV (didn't upload) is left there: it shows as added outside Inframy.
     private func handleAlbumRemovals(_ ids: [UUID]) {
         guard !ids.isEmpty else { return }
         let keepOnTV = UserDefaults.standard.string(forKey: Prefs.albumRemoval) == "keep"
@@ -359,7 +423,7 @@ final class AppModel {
                 photo.photosAlbumID = nil
                 photo.photosLocalIdentifier = nil
                 photos.insert(photo, at: min(i, photos.count))
-            } else if photo.tvContentID != nil {
+            } else if photo.tvContentID != nil, photo.recognizedOnTV != true {
                 photo.pendingRemoval = true
                 pendingRemovals.append(photo)
             } else {
@@ -371,9 +435,20 @@ final class AppModel {
     /// Deletes TV copies of photos that left the album, once the TV is awake.
     func processPendingRemovals() async {
         guard tvState.isConnected, !pendingRemovals.isEmpty else { return }
-        let ids = pendingRemovals.compactMap(\.tvContentID)
-        guard let deleted = try? await withClient({ try await $0.delete(ids) }) else { return }
-        let gone = Set(deleted)
+        // Check what's actually there, so a copy already deleted (on the TV, or by an earlier try) can't block
+        // the rest forever.
+        guard let onTV = try? await withClient({ try await $0.contentList() }).map(\.contentID) else { return }
+        let ids = pendingRemovals.compactMap(\.tvContentID).filter(Set(onTV).contains)
+        var deleted: [String] = []
+        if !ids.isEmpty {
+            if let all = try? await withClient({ try await $0.delete(ids) }) {
+                deleted = all
+            } else {
+                // One id the TV rejects shouldn't hold up the others.
+                for id in ids { deleted += (try? await withClient { try await $0.delete([id]) }) ?? [] }
+            }
+        }
+        let gone = Set(deleted).union(pendingRemovals.compactMap(\.tvContentID).filter { !onTV.contains($0) })
         let done = pendingRemovals.filter { $0.tvContentID.map(gone.contains) ?? true }
         for photo in done { store.deleteCopy(of: photo) }
         pendingRemovals.removeAll { p in done.contains { $0.id == p.id } }
@@ -560,6 +635,14 @@ final class AppModel {
     func setShuffle(on: Bool, minutes: Int? = nil) async {
         if let minutes { shuffleMinutes = minutes }
         do {
+            if on {
+                // Every caller goes through here, so this is the one place the 1-photo guard has to live.
+                let count = try await withClient { try await $0.contentList() }.count
+                guard count >= 2 else {
+                    lastError = "Shuffle needs at least 2 photos on the TV (a 1-photo shuffle wedges this TV)."
+                    return
+                }
+            }
             try await withClient { try await $0.setSlideshow(intervalMinutes: on ? shuffleMinutes : nil) }
             slideshow = try? await withClient { try await $0.slideshowStatus() }
         } catch {
@@ -570,6 +653,7 @@ final class AppModel {
     // MARK: Library
 
     func saveLibrary() {
+        guard !libraryUnreadable else { return }
         do { try store.save(photos + pendingRemovals) } catch { lastError = "Couldn't save the library: \(error)" }
     }
 

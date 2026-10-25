@@ -47,7 +47,9 @@ public enum Recognition {
             v.choice = match.choice
             return v
         }()
-        if p.choice == .undecided { p.choice = match.choice }
+        if p.choice == .undecided {
+            if case .crop(let rect) = match.choice { p.setRecoveredCrop(rect) } else { p.choice = match.choice }
+        }
         p.tvContentID = match.contentID
         p.uploadedRenderKey = tvVersion.renderKey
         p.recognizedOnTV = true
