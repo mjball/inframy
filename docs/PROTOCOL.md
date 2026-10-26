@@ -274,28 +274,43 @@ set back to `off` after.
 - Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
 - `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
 
-### Slideshow timer seems to count screen-on time only ⚠️ (2026-10-26, one test)
+### Slideshow timer counts screen-on time only ✅ (2026-10-26, two tests)
 
-Matt noticed a 1-day (`1440`) shuffle never changed the photo. Test, with Matt's OK, logged by `inframy-cli watch`
-(one connection, `get_auto_rotation_status` + `get_current_artwork` every 20 s):
+Matt noticed a 1-day (`1440`) shuffle never changed the photo. Two tests, with Matt's OK, logged by
+`inframy-cli watch` (one connection, `get_auto_rotation_status` + `get_current_artwork`) plus a REST presence check.
+
+**Test 1** (3-min interval, 20 s polling):
 
 ```
 09:23:12  set_auto_rotation_status 3 / shuffleslideshow / MY-C0002   (was 1440, showing MY_F0004)
-09:23:42  MY_F0029    ← setting the slideshow switches the photo straight away
+09:23:42  MY_F0029
 09:26:31  MY_F0016    ← every 3 min while the screen is on
 09:29:40  MY_F0077
-09:31:22  TV off the network (motion-sensor sleep, 1:42 into the 3-min interval)
+09:31:22  TV off the network (motion-sensor sleep, ~1:42 into the interval)
 09:36:21  Wake-on-LAN sent; 09:36:39 back, still MY_F0077 (no change while asleep)
 09:38:03  MY_F0042    ← ~1:30 after waking: the remaining 1:18, not a fresh 3:00
-09:38:14  set back to 1440
 ```
 
-- **The interval timer appears to pause while the screen sleeps and resume on wake** (screen-on time, not clock time).
-  Rules out clock time (no change in 5 min asleep) and a restart on wake (would have changed ~09:39:30). Not yet
-  ruled out: a change triggered ~1½ min after any wake, motion wakes behaving unlike Wake-on-LAN, `1440` behaving
-  unlike `3`. Repeat with a 15-min interval, sleep mid-interval, 5 s polling. With the motion sensor, a `1440`
-  interval would need 24 hours of the screen being on, which can take days.
-- Setting the slideshow (even to the same category) changes the photo immediately.
+**Test 2** (15-min interval, 5 s polling), chosen so each explanation predicts a different time:
+
+```
+09:52:40  set 15 (TV just woken by Wake-on-LAN, showing MY_F0042)
+09:53:55  MY_F0014
+10:08:50  MY_F0082    ← 14:55 later
+10:11:33  network down (motion-sensor sleep, ~2:40 into the interval, ~12:20 left)
+10:16:41  Wake-on-LAN sent; 10:16:48 network up, still MY_F0082
+          (predictions: change on wake ≈ 10:18; clock time = 10:23:50; paused timer = 10:29:00–10:29:10)
+10:29:02  MY_F0085    ← paused timer
+10:29:16  set to 60
+```
+
+- **The interval timer pauses while the screen sleeps and resumes where it left off on wake.** It counts screen-on
+  time, not clock time, and doesn't restart or change the photo on wake. With the motion sensor, a `1440` interval
+  needs 24 hours of the screen being on, which can take days; Inframy labels intervals as screen-on time.
+- Both wakes were Wake-on-LAN; a wake from someone walking in is assumed to behave the same (unverified).
+- Changing the interval doesn't reliably switch the photo or restart the countdown: setting 3 (09:23:12) was
+  followed by a change 30 s later, but setting 60 (09:45:38) and 15 (09:52:40) were not. What decides when the
+  first change comes after a new setting is unknown.
 
 ### Delete ✅
 
