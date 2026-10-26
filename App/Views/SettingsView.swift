@@ -36,7 +36,7 @@ struct SettingsView: View {
             }
             Section("TV") {
                 Toggle("Keep the slideshow on", isOn: $keepShuffleOn)
-                Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do), at the interval it last had. Choose the interval from the shuffle menu in On the TV.")
+                Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do), at the interval it last had. Choose the interval from the shuffle menu in On the TV. The TV only counts time with the screen on (not while the motion sensor has it asleep).")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Wake the TV when I open Inframy", isOn: $wakeOnOpen)
                 Text("At home, opening Inframy or switching to it wakes the Frame if it's asleep (at most every 3 minutes). Away from home Inframy waits quietly.")

@@ -9,7 +9,7 @@ struct MenuBarContent: View {
     var body: some View {
         Text(status)
         if let s = model.slideshow, let m = s.intervalMinutes {
-            Text("Shuffling \(s.contentIDs.count) photos, every \(m) min")
+            Text("Shuffling \(s.contentIDs.count) photos, every \(m) min of screen-on time")
         } else if model.tvState.isConnected {
             Text("Slideshow off")
         }
