@@ -274,6 +274,26 @@ set back to `off` after.
 - Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
 - `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
 
+### Slideshow timer counts screen-on time only ⚠️ (2026-10-26)
+
+Matt noticed a 1-day (`1440`) shuffle never changed the photo. Test, with Matt's OK, logged by `inframy-cli watch`
+(one connection, `get_auto_rotation_status` + `get_current_artwork` every 20 s):
+
+```
+09:23:12  set_auto_rotation_status 3 / shuffleslideshow / MY-C0002   (was 1440, showing MY_F0004)
+09:23:42  MY_F0029    ← setting the slideshow switches the photo straight away
+09:26:31  MY_F0016    ← every 3 min while the screen is on
+09:29:40  MY_F0077
+09:31:22  TV off the network (motion-sensor sleep, 1:42 into the 3-min interval)
+09:36:21  Wake-on-LAN sent; 09:36:39 back, still MY_F0077 (no change while asleep)
+09:38:03  MY_F0042    ← ~1:30 after waking: the remaining 1:18, not a fresh 3:00
+09:38:14  set back to 1440
+```
+
+- **The interval timer pauses while the screen sleeps and resumes on wake.** It counts screen-on time, not clock time.
+  With the motion sensor, a `1440` interval needs 24 hours of the screen being on, which can take days.
+- Setting the slideshow (even to the same category) changes the photo immediately.
+
 ### Delete ✅
 
 2026-10-23, with Matt's OK: deleted the two test images.

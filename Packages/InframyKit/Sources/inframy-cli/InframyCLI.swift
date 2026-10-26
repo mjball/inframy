@@ -13,7 +13,7 @@ struct InframyCLI: AsyncParsableCommand {
         Commands that change the TV: upload, rm, show, shuffle, wake.
         """,
         subcommands: [Discover.self, Pair.self, Info.self, List.self, Thumbs.self, Suggest.self, Recognize.self, Upload.self,
-                      Remove.self, Show.self, Shuffle.self, Wake.self]
+                      Remove.self, Show.self, Shuffle.self, Wake.self, Watch.self]
     )
 }
 
@@ -117,6 +117,44 @@ struct Info: AsyncParsableCommand {
             print("Slideshow:  off")
         }
         await client.connection.close()
+    }
+}
+
+struct Watch: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Log which photo the TV shows, and when it changes (read-only).",
+        discussion: "Keeps one connection open while the TV is awake. When the screen sleeps and the TV leaves the "
+            + "network, waits for it to come back and reconnects. Stop with Ctrl-C.")
+
+    @OptionGroup var tv: TVOptions
+    @Option(help: "Seconds between checks.") var every = 30
+
+    func run() async throws {
+        let stamp = Date.ISO8601FormatStyle(timeZone: .current).year().month().day().time(includingFractionalSeconds: false)
+        func log(_ line: String) {
+            print("\(Date().formatted(stamp))  \(line)")
+            fflush(stdout)
+        }
+        var last: String?
+        var awake = false
+        while true {
+            do {
+                let (client, _) = try await tv.client()
+                defer { Task { await client.connection.close() } }
+                while true {
+                    let status = try await client.slideshowStatus()
+                    let showing = (try? await client.currentArtwork().contentID) ?? status.currentContentID ?? "?"
+                    let shuffle = status.intervalMinutes.map { "shuffle \($0) min" } ?? "shuffle off"
+                    if !awake { log("TV awake. Showing \(showing) (\(shuffle))"); awake = true }
+                    else if showing != last { log("Changed to \(showing) (\(shuffle))") }
+                    last = showing
+                    try await Task.sleep(for: .seconds(every))
+                }
+            } catch {
+                if awake { log("TV gone (\(error)). Waiting for it to come back…"); awake = false }
+                try await Task.sleep(for: .seconds(every))
+            }
+        }
     }
 }
 

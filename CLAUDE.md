@@ -40,7 +40,7 @@ Inframy is a native macOS app that manages Matt's own photos as art on his Samsu
 project.yml                  # XcodeGen spec for Inframy.app (the .xcodeproj is generated, not committed)
 App/                         # SwiftUI app target
 Packages/InframyKit/         # TVClient, ImagePipeline, Library, Sync + tests
-Packages/InframyKit/Sources/inframy-cli/   # CLI built on InframyKit (pair, info, ls, thumbs, upload, rm, shuffle)
+Packages/InframyKit/Sources/inframy-cli/   # CLI built on InframyKit (pair, info, ls, thumbs, upload, rm, shuffle, watch)
 tools/probe.py               # Phase 0 probe using the samsungtvws Python library
 docs/SPEC.md, docs/PROTOCOL.md
 ```

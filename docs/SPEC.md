@@ -237,7 +237,8 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - **Protocol version uncertainty** for this exact TV until Phase 0.
 - **Reachability**: TV asleep or off the network; Wake-on-LAN may or may not wake it into a state where the
   art channel responds.
-- **Slideshow quirks** on 2020 firmware (allowed interval values, stopping on its own).
+- **Slideshow quirks** on 2020 firmware (allowed interval values, stopping on its own). The interval timer counts
+  screen-on time only (PROTOCOL.md, 2026-10-26).
 
 ## 12. References
 
