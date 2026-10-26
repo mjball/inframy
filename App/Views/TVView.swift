@@ -210,7 +210,9 @@ struct ShuffleControl: View {
             if model.tvItems.count < 2 {
                 Text("Shuffle needs at least 2 photos (a 1-photo shuffle wedges this TV)")
             }
-            Section("Shuffle My Photos") {
+            // The TV's timer only runs while the screen is on; it pauses while the motion sensor has it asleep
+            // (docs/PROTOCOL.md), so these are screen-on time, not clock time.
+            Section("Shuffle My Photos: new photo after this much screen-on time") {
                 ForEach(Self.intervals, id: \.0) { minutes, title in
                     Button {
                         Task { await model.setShuffle(on: true, minutes: minutes) }
@@ -228,13 +230,13 @@ struct ShuffleControl: View {
                 .labelStyle(.titleAndIcon)
         }
         .disabled(!model.tvState.isConnected)
-        .help("TV slideshow for My Photos")
+        .help("TV slideshow for My Photos. The TV counts only time with the screen on, so \"1 day\" can take several days.")
     }
 
     private var title: String {
         guard let minutes = model.slideshow?.intervalMinutes else { return "Shuffle off" }
         let label = Self.intervals.first { $0.0 == minutes }?.1 ?? "\(minutes) min"
-        return "Every \(label)"
+        return "Every \(label) on screen"
     }
 }
 

@@ -237,7 +237,8 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 - **Protocol version uncertainty** for this exact TV until Phase 0.
 - **Reachability**: TV asleep or off the network; Wake-on-LAN may or may not wake it into a state where the
   art channel responds.
-- **Slideshow quirks** on 2020 firmware (allowed interval values, stopping on its own).
+- **Slideshow quirks** on 2020 firmware (allowed interval values, stopping on its own). The interval timer counts
+  screen-on time only (PROTOCOL.md, 2026-10-26).
 
 ## 12. References
 
@@ -257,7 +258,7 @@ Run `tools/probe.py` (read-only by default) against Matt's TV and record results
 Decided with Matt (formerly docs/OPEN-QUESTIONS.md):
 - Photos come only from the chosen Photos album; removing one from the album removes it from the TV (Settings can
   keep it instead). Large portraits are allowed: Matt crops a landscape slice. Minimum source size 3840×2160.
-- Shuffle intervals offered: 3 min, 15 min, 1 h, 12 h, 1 day (the TV accepts any value). Never shuffle < 2 photos.
+- Shuffle intervals offered: 3 min, 15 min, 1 h, 12 h, 1 day of screen-on time (the TV accepts any value; its timer pauses while the screen sleeps, so the UI says "on screen"). Never shuffle < 2 photos.
 - No rotation: the TV's shuffle rotates; Inframy uploads everything. "Keep the slideshow on" is on by default.
 - Photos already on the TV are recognized automatically (sub-image match, crop recovered); "Not the Same Photo" undoes.
 - Reduced copies in the album are replaced with full-size originals via Find Full-Size Originals (read-only).

@@ -169,7 +169,7 @@ struct TVStatusCard: View {
     private var subtitle: String {
         switch model.tvState {
         case .connected(let info, let version):
-            let shuffle = model.slideshow.flatMap { $0.intervalMinutes.map { "shuffle \($0) min" } } ?? "shuffle off"
+            let shuffle = model.slideshow.flatMap { $0.intervalMinutes.map { "shuffle every \($0) min on screen" } } ?? "shuffle off"
             return "\(info.host) · API \(version) · \(shuffle)"
         case .searching(let message): return message
         case .unavailable(let message): return message

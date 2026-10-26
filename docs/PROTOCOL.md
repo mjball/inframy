@@ -274,6 +274,82 @@ set back to `off` after.
 - Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
 - `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
 
+### Slideshow timer counts screen-on time only ✅ (2026-10-26, four tests)
+
+Matt noticed a 1-day (`1440`) shuffle never changed the photo. Two tests, with Matt's OK, logged by
+`inframy-cli watch` (one connection, `get_auto_rotation_status` + `get_current_artwork`) plus a REST presence check.
+
+**Test 1** (3-min interval, 20 s polling):
+
+```
+09:23:12  set_auto_rotation_status 3 / shuffleslideshow / MY-C0002   (was 1440, showing MY_F0004)
+09:23:42  MY_F0029
+09:26:31  MY_F0016    ← every 3 min while the screen is on
+09:29:40  MY_F0077
+09:31:22  TV off the network (motion-sensor sleep, ~1:42 into the interval)
+09:36:21  Wake-on-LAN sent; 09:36:39 back, still MY_F0077 (no change while asleep)
+09:38:03  MY_F0042    ← ~1:30 after waking: the remaining 1:18, not a fresh 3:00
+```
+
+**Test 2** (15-min interval, 5 s polling), chosen so each explanation predicts a different time:
+
+```
+09:52:40  set 15 (TV just woken by Wake-on-LAN, showing MY_F0042)
+09:53:55  MY_F0014
+10:08:50  MY_F0082    ← 14:55 later
+10:11:33  network down (motion-sensor sleep, ~2:40 into the interval, ~12:20 left)
+10:16:41  Wake-on-LAN sent; 10:16:48 network up, still MY_F0082
+          (predictions: change on wake ≈ 10:18; clock time = 10:23:50; paused timer = 10:29:00–10:29:10)
+10:29:02  MY_F0085    ← paused timer
+10:29:16  set to 60
+```
+
+- **The interval timer pauses while the screen sleeps and resumes where it left off on wake.** It doesn't restart or
+  change the photo on wake. With the motion sensor, a `1440` interval needs 24 hours of art on screen, which can take
+  days; Inframy labels intervals as screen-on time.
+- Changing the interval doesn't restart the countdown (see test 4). What happens to the remaining time when the
+  interval is shortened (1440 → 3 at 09:23:12, change 30 s later) is unknown.
+
+**Test 3** (2026-10-26, 5-min interval, 5 s polling, REST presence every 1 s). Three more sleep/wake cycles, each with
+its own prediction; every one matched the paused timer:
+
+```
+12:52:04  MY_F0078
+12:56:58  network down (screen off a few s before the countdown ran out)
+12:57:59  Wake-on-LAN; 12:58:00 up, showing MY_F0060 (last seconds ran out at wake)
+13:03:07  MY_F0032    ← 5:00 after the wake; clock time predicted 13:02:02
+13:08:05  MY_F0072
+13:13:19  network down. No change at the due 13:13:03: the screen goes off ~15 s before the TV leaves the network
+13:21:18  network up: MOTION wake (Matt walked in). Matt: "almost immediately the image switched" → MY_F0017
+13:26:25  MY_F0039    ← 5:00 after the wake; clock time predicted 13:23:03
+13:41:21  MY_F0050
+13:44:18  network down (~3 min into the interval)
+13:59:18  Wake-on-LAN after 15 min asleep; 13:59:19 up, still MY_F0050 (clock time: 3 changes would have happened)
+14:01:27  MY_F0055    ← the ~2 min that were left
+```
+
+So motion wakes behave like Wake-on-LAN wakes.
+
+**Test 4: Art Mode off** (`set_artmode_status off`; the screen stays on and shows the TV's last input).
+
+```
+12:37:06  MY_F0034;  12:38:42 art mode off;  12:41:45 art mode on;  12:42:02 MY_F0035;  12:47:06 MY_F0074
+14:01:27  MY_F0055;  14:01:32 set 60;  14:02:04 set 5
+14:06:25  MY_F0056    ← 5:00 after 14:01:27: changing the interval didn't restart the countdown
+14:07:32  art mode off   (a change was due ~14:11:22: none reported while art mode was off)
+14:13:36  art mode on, still MY_F0056
+14:13:48  MY_F0030    ← ~10 s after returning to art mode
+14:18:45  MY_F0071    ← 5:00 later: the countdown restarted at that change
+```
+
+- **Returning to Art Mode switches to a new photo within ~10–15 s and restarts the countdown.** In the first run the
+  return happened to fall just before the change was due, so it looked like the timer kept running; the second run
+  rules that out (and rules out "counts Art Mode time only", which predicted ~14:17:30).
+- Not known: whether a short trip out of Art Mode (shorter than the time left) also switches the photo, or only one
+  where the change came due while away. Either way, after watching TV the Frame comes back to a new photo.
+- `set_artmode_status` replies slowly: `off` read back as still `on` straight away (off ~3 s later), and `on` timed
+  out at 20 s although art mode was back within ~5 s.
+
 ### Delete ✅
 
 2026-10-23, with Matt's OK: deleted the two test images.
@@ -344,7 +420,12 @@ run while the screen is on, or after Wake-on-LAN (works from this state; see bel
 - **Wake-on-LAN from motion-sensor sleep works (2026-10-25):** with the TV off the network after the motion
   sensor turned the screen off, Matt (away from the room) sent the wake from Inframy and the app connected and
   listed My Photos (82 items, slideshow status read). The art channel was ready, unlike after a wake from full
-  power-off. What the screen showed, and how long the wake took, weren't recorded.
+  power-off.
+- **What it shows after that wake (2026-10-26):** Art mode, the same photo as before it slept. Asleep since ~10:30;
+  `11:34:22` magic packet → `11:34:24` REST `PowerState: on` → `11:34:28` art channel answering: `get_artmode_status`
+  `on`, `get_current_artwork` `MY_F0085` (shown since 10:29), shuffle 60 min. Polled every 2 s for 2 min: stayed in
+  art mode, same photo (the shuffle timer resumes rather than changing the photo on wake; see Slideshow timer). This
+  is what the API reports; nobody looked at the screen, and the first ~6 s before the art channel answered are unseen.
 - Inframy's "Wake the TV to rotate" stays off by default.
 
 ### Storage (2026-10-24)
