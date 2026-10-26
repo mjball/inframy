@@ -136,6 +136,7 @@ struct Watch: AsyncParsableCommand {
             fflush(stdout)
         }
         var last: String?
+        var lastArtMode: String?
         var awake = false
         while true {
             do {
@@ -145,9 +146,12 @@ struct Watch: AsyncParsableCommand {
                     let status = try await client.slideshowStatus()
                     let showing = (try? await client.currentArtwork().contentID) ?? status.currentContentID ?? "?"
                     let shuffle = status.intervalMinutes.map { "shuffle \($0) min" } ?? "shuffle off"
-                    if !awake { log("TV awake. Showing \(showing) (\(shuffle))"); awake = true }
-                    else if showing != last { log("Changed to \(showing) (\(shuffle))") }
+                    let artMode = (try? await client.artModeIsOn()).map { $0 ? "art mode on" : "art mode OFF" } ?? "art mode ?"
+                    if !awake { log("TV awake. Showing \(showing) (\(artMode), \(shuffle))"); awake = true }
+                    else if showing != last { log("Changed to \(showing) (\(artMode), \(shuffle))") }
+                    else if artMode != lastArtMode { log("Now \(artMode), showing \(showing)") }
                     last = showing
+                    lastArtMode = artMode
                     try await Task.sleep(for: .seconds(every))
                 }
             } catch {

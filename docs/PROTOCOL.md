@@ -382,7 +382,12 @@ run while the screen is on, or after Wake-on-LAN (works from this state; see bel
 - **Wake-on-LAN from motion-sensor sleep works (2026-10-25):** with the TV off the network after the motion
   sensor turned the screen off, Matt (away from the room) sent the wake from Inframy and the app connected and
   listed My Photos (82 items, slideshow status read). The art channel was ready, unlike after a wake from full
-  power-off. What the screen showed, and how long the wake took, weren't recorded.
+  power-off.
+- **What it shows after that wake (2026-10-26):** Art mode, the same photo as before it slept. Asleep since ~10:30;
+  `11:34:22` magic packet → `11:34:24` REST `PowerState: on` → `11:34:28` art channel answering: `get_artmode_status`
+  `on`, `get_current_artwork` `MY_F0085` (shown since 10:29), shuffle 60 min. Polled every 2 s for 2 min: stayed in
+  art mode, same photo (the shuffle timer resumes rather than changing the photo on wake; see Slideshow timer). This
+  is what the API reports; nobody looked at the screen, and the first ~6 s before the art channel answered are unseen.
 - Inframy's "Wake the TV to rotate" stays off by default.
 
 ### Storage (2026-10-24)
