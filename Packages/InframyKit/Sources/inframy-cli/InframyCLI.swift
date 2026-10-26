@@ -10,10 +10,10 @@ struct InframyCLI: AsyncParsableCommand {
         abstract: "Manage your own photos on a Samsung The Frame TV.",
         discussion: """
         Finds the TV on the local network automatically (Bonjour). Run `pair` once to remember it.
-        Commands that change the TV: upload, rm, show, shuffle, wake.
+        Commands that change the TV: upload, rm, show, shuffle, artmode, wake.
         """,
         subcommands: [Discover.self, Pair.self, Info.self, List.self, Thumbs.self, Suggest.self, Recognize.self, Upload.self,
-                      Remove.self, Show.self, Shuffle.self, Wake.self, Watch.self]
+                      Remove.self, Show.self, Shuffle.self, ArtMode.self, Wake.self, Watch.self]
     )
 }
 
@@ -418,6 +418,23 @@ struct Shuffle: AsyncParsableCommand {
         } else {
             print("Slideshow off.")
         }
+        await client.connection.close()
+    }
+}
+
+struct ArtMode: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "artmode", abstract: "Turn art mode on or off (off shows the TV's last input).")
+
+    enum State: String, ExpressibleByArgument { case on, off }
+
+    @OptionGroup var tv: TVOptions
+    @Argument(help: "on or off.") var state: State
+
+    func run() async throws {
+        let (client, _) = try await tv.client()
+        try await client.setArtMode(state == .on)
+        print("Art mode \(try await client.artModeIsOn() ? "on" : "off").")
         await client.connection.close()
     }
 }
