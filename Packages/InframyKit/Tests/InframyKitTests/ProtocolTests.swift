@@ -139,6 +139,12 @@ struct ProtocolTests {
         #expect(json["n"]?.stringValue == "42")
     }
 
+    @Test func newestFirstSortsByUploadNumber() throws {
+        let ids = ["MY_F0009", "MY_F0085", "MY-F0020", "ODD", "MY_F0010", "MY_C0010"]
+        let items = ids.map { ContentItem(.object(["content_id": .string($0)]))! }
+        #expect(ContentItem.newestFirst(items).map(\.contentID) == ["MY_F0085", "MY-F0020", "MY_F0010", "MY_C0010", "MY_F0009", "ODD"])
+    }
+
     @Test func contentIDsAreSafeFileNames() {
         #expect(ContentItem.fileName(for: "MY_F0004") == "MY_F0004")
         #expect(ContentItem.fileName(for: "../../etc/passwd") == "______etc_passwd")

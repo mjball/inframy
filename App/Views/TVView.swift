@@ -73,6 +73,12 @@ struct TVView: View {
     private var grid: some View {
         ScrollIfLive {
           VStack(alignment: .leading, spacing: 0) {
+            if let id = nowShowingID {
+                NowShowing(contentID: id)
+                    .padding([.horizontal, .top], 24)
+                    .onTapGesture { toggle(id) }
+                Divider().padding(.horizontal, 24).padding(.top, 20)
+            }
             LazyVGrid(columns: columns, spacing: 18) {
                 ForEach(model.tvItems, id: \.contentID) { item in
                     TVTile(item: item, selected: selection.contains(item.contentID),
@@ -105,6 +111,12 @@ struct TVView: View {
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.downArrow) { move(1); return .handled }
         .quickLookPreview($quickLookURL, in: quickLookItems)
+    }
+
+    /// What's on the screen, while connected and in art mode.
+    private var nowShowingID: String? {
+        guard model.tvState.isConnected, model.artModeOn != false else { return nil }
+        return model.currentContentID
     }
 
     private var orderedSelection: [String] { model.tvItems.map(\.contentID).filter { selection.contains($0) } }
@@ -176,13 +188,15 @@ struct TVTile: View {
             .overlay(alignment: .topLeading) {
                 if isCurrent {
                     Label("Showing", systemImage: "tv").font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.ultraThinMaterial, in: Capsule()).padding(6)
+                        .background(Color.accentColor, in: Capsule()).padding(6)
                 }
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(selected ? Color.accentColor : .black.opacity(0.08), lineWidth: selected ? 3 : 1)
+                    .strokeBorder(selected || isCurrent ? Color.accentColor : .black.opacity(0.08),
+                                  lineWidth: selected ? 3 : isCurrent ? 2 : 1)
             }
             .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
             HStack(spacing: 6) {
@@ -195,6 +209,47 @@ struct TVTile: View {
                     Text(item.contentID).font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
             }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// The photo on the TV's screen right now, large, above the grid.
+struct NowShowing: View {
+    @Environment(AppModel.self) private var model
+    let contentID: String
+
+    var body: some View {
+        let photo = model.photo(forTVItem: contentID)
+        let onTV = model.tvItems.contains { $0.contentID == contentID }
+        HStack(alignment: .center, spacing: 20) {
+            ZStack {
+                Rectangle().fill(.quaternary)
+                if let image = model.tvThumbnails[contentID] {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "photo.artframe").font(.largeTitle).foregroundStyle(.tertiary)
+                }
+            }
+            .frame(width: 400, height: 225)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor, lineWidth: 2) }
+            .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Now Showing", systemImage: "tv").font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+                Text(photo?.displayName ?? contentID).font(.title2.weight(.semibold)).lineLimit(1)
+                if photo != nil {
+                    Text(contentID).font(.callout.monospaced()).foregroundStyle(.secondary)
+                } else {
+                    Text(onTV ? "Added outside Inframy" : "Not one of your photos")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                if let photo {
+                    Button("Open in Crop Editor") { model.editingPhotoID = photo.id }
+                        .padding(.top, 6)
+                }
+            }
+            Spacer()
         }
         .contentShape(Rectangle())
     }
