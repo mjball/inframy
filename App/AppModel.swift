@@ -44,6 +44,8 @@ final class AppModel {
     }
     /// The image on the TV's screen (`get_current_artwork`), refreshed on every presence check while connected.
     var currentContentID: String?
+    /// Art mode on or off, read alongside `currentContentID` (nil until the first read).
+    var artModeOn: Bool?
     var jobs: [SendJob] = []
     var section: Section = .library
     /// Photo open in the crop editor.
@@ -672,7 +674,7 @@ final class AppModel {
         isRefreshingTV = true
         defer { isRefreshingTV = false }
         do {
-            tvItems = try await withClient { try await $0.contentList() }
+            tvItems = ContentItem.newestFirst(try await withClient { try await $0.contentList() })
             slideshow = try? await withClient { try await $0.slideshowStatus() }
             await refreshCurrentArtwork()
             // Forget TV ids that are gone (deleted on the TV or elsewhere).
@@ -798,6 +800,7 @@ final class AppModel {
         if let current = try? await withClient(retry: false, { try await $0.currentArtwork() }) {
             currentContentID = current.contentID
         }
+        if let on = try? await withClient(retry: false, { try await $0.artModeIsOn() }) { artModeOn = on }
     }
 
     func setShuffle(on: Bool, minutes: Int? = nil) async {

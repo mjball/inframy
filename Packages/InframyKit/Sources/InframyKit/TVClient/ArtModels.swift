@@ -36,6 +36,25 @@ public struct ContentItem: Sendable, Equatable, Hashable {
         }
     }
 
+    /// The TV numbers uploads in order (`MY_F0085` is newer than `MY_F0084`); nil if the id doesn't end in digits.
+    public var uploadNumber: Int? {
+        let digits = contentID.reversed().prefix { $0.isNumber }
+        return digits.isEmpty ? nil : Int(String(digits.reversed()))
+    }
+
+    /// Newest upload first, by the number in the id, so the order doesn't depend on how the TV lists them.
+    /// Ids without a number go last; ties break on the id.
+    public static func newestFirst(_ items: [ContentItem]) -> [ContentItem] {
+        items.sorted { a, b in
+            switch (a.uploadNumber, b.uploadNumber) {
+            case let (x?, y?) where x != y: return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.contentID > b.contentID
+            }
+        }
+    }
+
     /// Personal uploads have ids like `MY_F0001` (this TV) or `MY-F0020` (other firmware).
     public var isPersonal: Bool { contentID.hasPrefix("MY_") || contentID.hasPrefix("MY-") }
 
