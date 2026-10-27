@@ -42,6 +42,8 @@ final class AppModel {
     var slideshow: SlideshowStatus? {
         didSet { if let minutes = slideshow?.intervalMinutes { shuffleMinutes = minutes } }
     }
+    /// The image on the TV's screen (`get_current_artwork`), refreshed on every presence check while connected.
+    var currentContentID: String?
     var jobs: [SendJob] = []
     var section: Section = .library
     /// Photo open in the crop editor.
@@ -173,6 +175,7 @@ final class AppModel {
             tvState = .unavailable(asleepMessage)
         case (true, true):
             if Date().timeIntervalSince(lastShuffleCheck) > 15 * 60 { await reassertShuffle() }
+            await refreshCurrentArtwork()
         case (false, false):
             // Away from home there's nothing to find; back home, connect (without waking: no one asked).
             if SavedTV.load() != nil, await location() == .away {
@@ -671,6 +674,7 @@ final class AppModel {
         do {
             tvItems = try await withClient { try await $0.contentList() }
             slideshow = try? await withClient { try await $0.slideshowStatus() }
+            await refreshCurrentArtwork()
             // Forget TV ids that are gone (deleted on the TV or elsewhere).
             let present = Set(tvItems.map(\.contentID))
             var changed = false
@@ -777,7 +781,23 @@ final class AppModel {
     }
 
     func show(_ id: String) async {
-        do { try await withClient { try await $0.select(id) } } catch { lastError = "Couldn't show it: \(error)" }
+        do {
+            try await withClient { try await $0.select(id) }
+            currentContentID = id
+            // Then confirm with the TV, once it has had a moment to switch.
+            try? await Task.sleep(for: .seconds(2))
+            await refreshCurrentArtwork()
+        } catch {
+            lastError = "Couldn't show it: \(error)"
+        }
+    }
+
+    /// Read-only. Never connects on its own and skips while sending, so polling can't slow an upload down.
+    func refreshCurrentArtwork() async {
+        guard tvState.isConnected, client != nil, !isSending else { return }
+        if let current = try? await withClient(retry: false, { try await $0.currentArtwork() }) {
+            currentContentID = current.contentID
+        }
     }
 
     func setShuffle(on: Bool, minutes: Int? = nil) async {

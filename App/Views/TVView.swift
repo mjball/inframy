@@ -76,7 +76,7 @@ struct TVView: View {
             LazyVGrid(columns: columns, spacing: 18) {
                 ForEach(model.tvItems, id: \.contentID) { item in
                     TVTile(item: item, selected: selection.contains(item.contentID),
-                           isCurrent: model.slideshow?.currentContentID == item.contentID)
+                           isCurrent: model.tvState.isConnected && model.currentContentID == item.contentID)
                         .onTapGesture(count: 2) { open(item.contentID) }
                         .onTapGesture { toggle(item.contentID) }
                         .contextMenu {
