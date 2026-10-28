@@ -78,11 +78,16 @@ struct TVView: View {
                     .padding([.horizontal, .top], 24)
                     .onTapGesture { toggle(id) }
                 Divider().padding(.horizontal, 24).padding(.top, 20)
+            } else if model.tvState.isConnected, model.artModeOn == false {
+                // Nothing to mark: the screen shows TV, and on returning to art mode it picks a new photo.
+                Label("Art mode is off. The TV is showing its last input, not a photo.", systemImage: "tv")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding([.horizontal, .top], 24)
             }
             LazyVGrid(columns: columns, spacing: 18) {
                 ForEach(model.tvItems, id: \.contentID) { item in
                     TVTile(item: item, selected: selection.contains(item.contentID),
-                           isCurrent: model.tvState.isConnected && model.currentContentID == item.contentID)
+                           isCurrent: nowShowingID == item.contentID)
                         .onTapGesture(count: 2) { open(item.contentID) }
                         .onTapGesture { toggle(item.contentID) }
                         .contextMenu {
