@@ -47,7 +47,7 @@ struct RootView: View {
                 Button("Remove from TV", role: .destructive) { Task { await model.resolveMassRemoval(remove: true) } }
                 Button("Keep Them") { Task { await model.resolveMassRemoval(remove: false) } }
             } message: {
-                Text("They're no longer in \u{201C}\(model.massRemovalPrompt?.albumTitle ?? "the album")\u{201D}. If that's a Photos hiccup (for example while iCloud is syncing), keep them. Kept photos stay on the TV and in the Library but stop following the album.")
+                Text("They're gone from \u{201C}\(model.massRemovalPrompt?.albumTitle ?? "the album")\u{201D}. Keep them if iCloud is still syncing.")
             }
         }
         .alert("Inframy", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
@@ -88,7 +88,7 @@ struct RootView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.readyToSend.isEmpty)
-            .help("Render and upload every photo whose crop you've accepted. If the TV is asleep, they go out when it wakes.")
+            .help("Upload every accepted crop.")
         }
     }
 

@@ -166,7 +166,7 @@ struct TVView: View {
     private var deleteMessage: String {
         var text = "This can't be undone. Library copies stay in Inframy."
         if !unknownSelected.isEmpty {
-            text += "\n\nAdded outside Inframy: \(unknownSelected.joined(separator: ", ")). These may be photos you added another way."
+            text += "\n\nAdded outside Inframy: \(unknownSelected.joined(separator: ", "))."
         }
         return text
     }
@@ -272,7 +272,7 @@ struct ShuffleControl: View {
             }
             // The TV's timer only runs while the screen is on; it pauses while the motion sensor has it asleep
             // (docs/PROTOCOL.md), so these are screen-on time, not clock time.
-            Section("Shuffle My Photos: new photo after this much screen-on time") {
+            Section("New photo every (screen-on time)") {
                 ForEach(Self.intervals, id: \.0) { minutes, title in
                     Button {
                         Task { await model.setShuffle(on: true, minutes: minutes) }
@@ -290,7 +290,7 @@ struct ShuffleControl: View {
                 .labelStyle(.titleAndIcon)
         }
         .disabled(!model.tvState.isConnected)
-        .help("TV slideshow for My Photos. The TV counts only time with the screen on, so \"1 day\" can take several days.")
+        .help("Shuffle My Photos. Counts screen-on time only.")
     }
 
     private var title: String {
@@ -315,7 +315,7 @@ struct SendQueueView: View {
             .padding(12)
             Divider()
             if model.jobs.isEmpty {
-                Text("Nothing queued. Accept crops in the Library, then press Send. If the TV is asleep, photos wait here until it wakes.")
+                Text("Nothing queued.")
                     .font(.callout).foregroundStyle(.secondary).padding(16)
             } else {
                 ScrollView {

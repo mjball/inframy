@@ -26,7 +26,7 @@ struct LibraryView: View {
             } else {
                 ScrollIfLive {
                     VStack(alignment: .leading, spacing: 24) {
-                        section("Needs a crop", photos(.needsCrop), hint: "Pick the 16:9 area for each. Nothing is sent until you do.")
+                        section("Needs a crop", photos(.needsCrop), hint: "Pick the 16:9 area for each.")
                         section("Ready to send", model.readyToSend, hint: nil)
                         section("On the TV", photos(.onTV), hint: nil)
                         section("Skipped", photos(.skipped), hint: nil)
@@ -173,7 +173,7 @@ struct PhotoTile: View {
                 Spacer()
                 if photo.recognizedOnTV == true {
                     Text("Already on your TV").font(.caption).foregroundStyle(.secondary)
-                        .help("Inframy recognized this photo on the TV (\(photo.tvContentID ?? "")) and used the crop it has there. Right-click → Not the Same Photo if that's wrong.")
+                        .help("Matched \(photo.tvContentID ?? "") on the TV and kept its crop. Wrong? Right-click → Not the Same Photo.")
                 } else if let id = photo.tvContentID {
                     Text(id).font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
@@ -305,7 +305,7 @@ struct OriginalsSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Full-size originals").font(.title3.weight(.semibold))
-                Text("Each reduced copy from the album is matched to the photo it was cropped from. Using the original keeps your old crop and doesn't change anything in Photos.")
+                Text("Matches each album copy to its full-size original. Your crop stays.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .padding(16)
@@ -319,7 +319,7 @@ struct OriginalsSheet: View {
                         ProgressView()
                         Text(model.originalProgress?.phase ?? "Starting").font(.callout).foregroundStyle(.secondary)
                     }
-                    Text("The first scan reads a small preview of every photo in your library; later scans are quick.")
+                    Text("The first scan is slow; later ones are quick.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(40)

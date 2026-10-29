@@ -58,7 +58,7 @@ struct AlbumSetupView: View {
                 .font(.system(size: 54, weight: .light))
                 .foregroundStyle(.secondary)
             Text("Choose the Photos album for your TV").font(.title2.weight(.semibold))
-            Text("Inframy keeps your TV in step with one album in Photos. Add a photo to the album and it shows up here for you to crop; take it out and it leaves the TV. Inframy only reads from Photos.")
+            Text("Inframy mirrors one Photos album to the TV. It never changes Photos.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 520)
@@ -106,7 +106,7 @@ struct EmptyAlbumView: View {
         ContentUnavailableView {
             Label("\u{201C}\(model.albumTitle ?? "The album")\u{201D} is empty", systemImage: "photo.on.rectangle.angled")
         } description: {
-            Text("Add photos to it in Photos and they'll appear here within a few seconds. Photos need to be at least 3840×2160.")
+            Text("Add photos in Photos (at least 3840×2160).")
         } actions: {
             Button("Sync Now") { Task { await model.syncAlbum(userInitiated: true) } }
         }
