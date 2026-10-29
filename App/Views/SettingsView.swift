@@ -36,10 +36,10 @@ struct SettingsView: View {
             }
             Section("TV") {
                 Toggle("Keep the slideshow on", isOn: $keepShuffleOn)
-                Text("Whenever the TV is awake, Inframy turns My Photos shuffle back on if it has stopped (2020 Frames sometimes do), at the interval it last had. Choose the interval from the shuffle menu in On the TV. The TV only counts time with the screen on (not while the motion sensor has it asleep).")
+                Text("Turns shuffle back on if the TV stops it.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Wake the TV when I open Inframy", isOn: $wakeOnOpen)
-                Text("At home, opening Inframy or switching to it wakes the Frame if it's asleep (at most every 3 minutes). Away from home Inframy waits quietly.")
+                Text("Wakes the Frame when you open Inframy at home.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let tv = SavedTV.load() {
                     LabeledContent("Paired TV", value: "\(tv.name.replacingOccurrences(of: "[TV] ", with: "")) · \(tv.host)")
@@ -49,7 +49,7 @@ struct SettingsView: View {
             Section("General") {
                 Toggle("Open Inframy at login", isOn: $openAtLogin)
                     .onChange(of: openAtLogin) { _, on in openAtLogin = LoginItem.set(on) }
-                Text("Keeps the menu bar item running, so photos you send while the TV sleeps go out when it wakes.")
+                Text("Sends queued photos when the TV wakes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Storage") {
@@ -89,7 +89,7 @@ struct RemovalSetting: View {
             Text("Remove it from the TV").tag("removeFromTV")
             Text("Keep it on the TV").tag("keep")
         }
-        Text("Choose or switch the album from the album menu in the main window's toolbar.")
+        Text("Change it from the toolbar's album menu.")
             .font(.caption).foregroundStyle(.secondary)
     }
 }

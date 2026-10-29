@@ -204,14 +204,13 @@ final class AppModel {
     }
 
     var asleepMessage: String {
-        "\(savedTVName) is asleep. It wakes when someone walks in; anything you send waits until then."
+        "\(savedTVName) is asleep. Sends wait until it wakes."
     }
 
-    static let awayMessage = "You're not on the TV's network. Inframy connects when you're back home; anything you send waits until then."
+    static let awayMessage = "Not on the TV's network. Sends wait until you're home."
 
     var didNotWakeMessage: String {
-        "\(savedTVName) didn't wake up. It may be switched off, or Power On with Mobile is off in its settings. "
-            + "Anything you send waits until it's back."
+        "\(savedTVName) didn't wake. Is Power On with Mobile on?"
     }
 
     private var savedTVName: String {
@@ -968,7 +967,7 @@ final class AppModel {
                 case .tv(let code, _):
                     // There's no storage query; a refused upload most likely means the TV is full.
                     setStage(job.id, .failed("The TV refused it (error \(code)). It may be full."))
-                    lastError = "The TV refused a photo (error \(code)). It's probably full: delete some on the On the TV screen to make room, then send again."
+                    lastError = "The TV refused a photo (error \(code)). It's probably full."
                     break
                 case .disconnected, .timedOut:
                     // It went to sleep mid-send. Try again when it's back (a copy that did land is recognized first).
