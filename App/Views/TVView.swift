@@ -80,7 +80,7 @@ struct TVView: View {
                 Divider().padding(.horizontal, 24).padding(.top, 20)
             } else if model.tvState.isConnected, model.artModeOn == false {
                 // Nothing to mark: the screen shows TV, and on returning to art mode it picks a new photo.
-                Label("Art mode is off. The TV is showing its last input, not a photo.", systemImage: "tv")
+                Label("Art mode off", systemImage: "tv")
                     .font(.callout).foregroundStyle(.secondary)
                     .padding([.horizontal, .top], 24)
             }
