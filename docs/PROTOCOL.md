@@ -350,6 +350,27 @@ So motion wakes behave like Wake-on-LAN wakes.
 - `set_artmode_status` replies slowly: `off` read back as still `on` straight away (off ~3 s later), and `on` timed
   out at 20 s although art mode was back within ~5 s.
 
+**Field log, 60-min interval** (2026-11-02/03, `inframy-cli watch --every 10`, read-only, nobody touching the TV).
+Matt asked why photos changed after much less than an hour on screen.
+
+```
+2026-11-02
+13:41:14  MY_F0004          13:44:08 screen off   14:00:40 screen on
+14:58:05  MY_F0016    ← MY_F0004 had 60:19 of screen-on time in two stretches, but only 57 min since the last wake
+2026-11-03
+(asleep since 21:25 the night before, when art mode was OFF: the TV had been left on TV)
+14:50:51  TV awake, still MY_F0016, art mode OFF
+14:51:01  art mode on    (the TV did this itself; Inframy never sets art mode)
+14:51:12  MY_F0082    ← 11 s after art mode came back
+```
+
+- Confirms the paused timer at 60 min: a full hour of screen-on time, spread over sleeps, so it looks early to
+  someone who walked in at the last wake.
+- **A TV that went to sleep out of Art Mode wakes, returns to Art Mode on its own and switches photo within ~10 s.**
+  Second sighting of the Art Mode rule, and the one people notice: "it changed as soon as I walked in". Whether the
+  change was already due isn't known (the log missed part of MY_F0016's screen time), so the short-trip question
+  above is still open.
+
 ### Delete ✅
 
 2026-10-23, with Matt's OK: deleted the two test images.
