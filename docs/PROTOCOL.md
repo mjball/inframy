@@ -268,8 +268,8 @@ set back to `off` after.
 ```
 
 - `value` is minutes as a string, or `"off"`. **Every value tried was accepted and echoed back: 3, 15, 60, 720,
-  1440, and also 7.** The TV doesn't validate intervals, so whether an odd value like 7 is actually honoured is
-  unverified. Stick to values the TV's own menu offers.
+  1440, and also 7.** The TV doesn't validate intervals. An off-menu value is honoured: `5` changed photos every
+  5:00 in tests 3 and 4 below. Others (e.g. 7, 120, 360) are assumed to work the same way but haven't been timed.
 - `value:"off"` → `auto_rotation_changed` `off`; status then reads back with empty `category_id`, `type`, `content_list`.
 - Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
 - `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
@@ -474,5 +474,5 @@ with `M0002` (the category the preinstalled `SAM-F0103` is in; probably "recent"
 ### Still to verify
 
 - Whether a `token` ever appears (e.g. if the TV's Access Notification setting changes).
-- Whether odd slideshow intervals (e.g. 7 min) are honoured; which intervals the TV menu offers.
+- Whether every off-menu interval is honoured (5 min is); which intervals the TV menu offers.
 - Upload capacity limit and its error (Phase 4 concern).
