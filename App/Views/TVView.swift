@@ -263,7 +263,15 @@ struct NowShowing: View {
 /// Shuffle on/off and interval for My Photos.
 struct ShuffleControl: View {
     @Environment(AppModel.self) private var model
-    static let intervals: [(Int, String)] = [(3, "3 minutes"), (15, "15 minutes"), (60, "1 hour"), (720, "12 hours"), (1440, "1 day")]
+    /// The TV takes any number of minutes (5 is off the usual menu and ran on time in docs/PROTOCOL.md tests 3 and 4).
+    static let intervals: [Int] = [3, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
+
+    static func label(_ minutes: Int) -> String {
+        func unit(_ n: Int, _ name: String) -> String { "\(n) \(name)\(n == 1 ? "" : "s")" }
+        if minutes % 1440 == 0 { return unit(minutes / 1440, "day") }
+        if minutes % 60 == 0 { return unit(minutes / 60, "hour") }
+        return unit(minutes, "minute")
+    }
 
     var body: some View {
         Menu {
@@ -273,7 +281,8 @@ struct ShuffleControl: View {
             // The TV's timer only runs while the screen is on; it pauses while the motion sensor has it asleep
             // (docs/PROTOCOL.md), so these are screen-on time, not clock time.
             Section("New photo every (screen-on time)") {
-                ForEach(Self.intervals, id: \.0) { minutes, title in
+                ForEach(Self.intervals, id: \.self) { minutes in
+                    let title = Self.label(minutes)
                     Button {
                         Task { await model.setShuffle(on: true, minutes: minutes) }
                     } label: {
@@ -295,8 +304,7 @@ struct ShuffleControl: View {
 
     private var title: String {
         guard let minutes = model.slideshow?.intervalMinutes else { return "Shuffle off" }
-        let label = Self.intervals.first { $0.0 == minutes }?.1 ?? "\(minutes) min"
-        return "Every \(label) on screen"
+        return "Every \(Self.label(minutes)) on screen"
     }
 }
 

@@ -268,8 +268,9 @@ set back to `off` after.
 ```
 
 - `value` is minutes as a string, or `"off"`. **Every value tried was accepted and echoed back: 3, 15, 60, 720,
-  1440, and also 7.** The TV doesn't validate intervals, so whether an odd value like 7 is actually honoured is
-  unverified. Stick to values the TV's own menu offers.
+  1440, and also 7.** The TV doesn't validate intervals. Off-menu values are honoured: `5` changed photos every
+  5:00 in tests 3 and 4 below, and `10` every 10:00 (test 5). Others (e.g. 7, 120, 360) are assumed to work the same
+  way but haven't been timed.
 - `value:"off"` → `auto_rotation_changed` `off`; status then reads back with empty `category_id`, `type`, `content_list`.
 - Status includes the slideshow's `content_list` (JSON string) and `current_content_id`.
 - `type: "shuffleslideshow"` (shuffle) or `"slideshow"` (in order, untested).
@@ -370,6 +371,23 @@ Matt asked why photos changed after much less than an hour on screen.
   Second sighting of the Art Mode rule, and the one people notice: "it changed as soon as I walked in". Whether the
   change was already due isn't known (the log missed part of MY_F0016's screen time), so the short-trip question
   above is still open.
+
+**Test 5: a 10-min interval** (2026-11-03, with Matt's OK; `watch --every 5`). TV woken by Wake-on-LAN, on `720`,
+showing MY_F0082 (≥34 min on screen).
+
+```
+20:03:50  set 10
+20:03:59  MY_F0085    ← 9 s later: shortening the interval below the time already shown changes the photo at once
+20:14:02  MY_F0070    ← 10:03 later
+~20:19:00 screen off (motion sensor; logged 20:19:10), ~4:58 into the interval
+20:19:16  Wake-on-LAN; 20:19:20 back, still MY_F0070
+20:24:41  MY_F0058    ← 5:21 after the wake: the paused timer, ~10:19 of screen-on time in all
+20:24:49  set 720 (restored)
+```
+
+- `10` is honoured, so the menu's off-TV values (5, 10, 30 min, 2, 3, 6 h) are reasonable to offer.
+- Answers the open question from test 1: when the new interval is shorter than the photo's screen-on time so far,
+  the TV changes the photo within seconds.
 
 ### Delete ✅
 
@@ -474,5 +492,5 @@ with `M0002` (the category the preinstalled `SAM-F0103` is in; probably "recent"
 ### Still to verify
 
 - Whether a `token` ever appears (e.g. if the TV's Access Notification setting changes).
-- Whether odd slideshow intervals (e.g. 7 min) are honoured; which intervals the TV menu offers.
+- Whether every off-menu interval is honoured (5 and 10 min are); which intervals the TV menu offers.
 - Upload capacity limit and its error (Phase 4 concern).
