@@ -402,7 +402,7 @@ struct Shuffle: AsyncParsableCommand {
 
     @OptionGroup var tv: TVOptions
     @Argument(help: "on or off.") var state: State
-    @Option(help: "Minutes between photos. The TV accepts any value; prefer ones its menu offers.") var interval = 15
+    @Option(help: "Minutes between photos. The TV accepts any value.") var interval = 15
     @Flag(help: "In order instead of shuffled.") var ordered = false
 
     func run() async throws {
